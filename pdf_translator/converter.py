@@ -13,7 +13,7 @@ from pdfplumber.utils.exceptions import PdfminerException
 
 from .export import render
 from .layout import PageData, TableData, body_size, contains, integrate_dropcaps, layout_page, merge_continuations, remove_marginal_credits, remove_running_margins
-from .models import BBox, ConversionError, ConversionResult, ConversionWarning, Word
+from .models import BBox, ConversionError, ConversionResult, ConversionWarning, HyphenResolver, Word
 from .text import normalize, vocabulary
 
 
@@ -87,11 +87,13 @@ def _read_page(page, warn) -> PageData:
     return data
 
 
-def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = None) -> ConversionResult:
+def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = None, hyphen_resolver: HyphenResolver | None = None) -> ConversionResult:
     """Convert selected 1-based PDF pages without network access or file writes.
 
     ``pages`` accepts e.g. ``"1,3-5"`` or a sequence of physical page numbers.
     Warnings are structured data; the CLI is responsible for displaying them.
+    ``hyphen_resolver(issue)`` may return True to join or False to keep a hyphen.
+    Without a resolver, ambiguous hyphens are retained with warnings.
     """
     source = Path(input_path)
     if not source.is_file():
@@ -136,8 +138,8 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
     remove_running_margins(extracted)
     blocks = []
     for page in extracted:
-        blocks.extend(layout_page(page, lexicon, warn))
-    blocks = merge_continuations(blocks, lexicon, warn)
+        blocks.extend(layout_page(page, lexicon, warn, hyphen_resolver))
+    blocks = merge_continuations(blocks, lexicon, warn, hyphen_resolver)
     markdown, text = render(blocks)
     if not text.strip():
         raise ConversionError("После обработки не осталось текста для экспорта.")

@@ -1,6 +1,7 @@
 """Conversion results retain source geometry for inspection and future UIs."""
 
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Literal
 
 type BBox = tuple[float, float, float, float]
@@ -22,6 +23,17 @@ class ConversionWarning:
     code: str
     message: str
     pages: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class HyphenationIssue:
+    page: int
+    hyphenated: str
+    joined: str
+    context: str
+
+
+type HyphenResolver = Callable[[HyphenationIssue], bool]
 
 
 @dataclass

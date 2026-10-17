@@ -4,7 +4,7 @@ import re
 import unicodedata
 from collections.abc import Callable, Iterable
 
-from .models import ConversionWarning
+from .models import ConversionWarning, HyphenationIssue, HyphenResolver
 
 _LIGATURES = str.maketrans({"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st"})
 _WORD = re.compile(r"[^\W\d_]+(?:[-’'][^\W\d_]+)*", re.UNICODE)
@@ -30,6 +30,7 @@ def join_lines(
     lexicon: set[str],
     page: int,
     warn: Callable[[ConversionWarning], None],
+    resolver: HyphenResolver | None = None,
 ) -> str:
     result = ""
     for raw in lines:
@@ -49,10 +50,18 @@ def join_lines(
                 compound = (left[1] + "-" + right[1]).casefold()
                 if whole in lexicon and compound not in lexicon:
                     result = result[:-1] + line
-                else:
+                elif compound in lexicon:
                     result += line
-                    if compound not in lexicon:
+                else:
+                    issue = HyphenationIssue(page, left[1] + "-" + right[1], left[1] + right[1], result[-110:] + "\n" + line[:110])
+                    if resolver is None:
+                        result += line
                         warn(ConversionWarning("ambiguous_hyphen", f"Неоднозначный перенос: {left[1]}-{right[1]}; дефис сохранён.", (page,)))
+                    else:
+                        decision = resolver(issue)
+                        if not isinstance(decision, bool):
+                            raise TypeError("hyphen_resolver must return True (join) or False (keep hyphen)")
+                        result = result[:-1] + line if decision else result + line
             else:
                 result += line if re.search(r"\d-$", result) and re.match(r"\d", line) else " " + line
         else:

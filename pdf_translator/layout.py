@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from statistics import median
 
-from .models import BBox, Block, ConversionWarning, Line, SourceRegion, Word, union_bbox
+from .models import BBox, Block, ConversionWarning, HyphenResolver, Line, SourceRegion, Word, union_bbox
 from .text import is_list, join_lines, normalize
 
 type Warn = Callable[[ConversionWarning], None]
@@ -208,7 +208,7 @@ def _lead_in(line: Line) -> bool:
 
 def _blocks_for_lines(
     lines: list[Line], page: PageData, bounds: BBox, lexicon: set[str], warn: Warn,
-    *, forced: str | None = None,
+    resolver: HyphenResolver | None = None, *, forced: str | None = None,
 ) -> list[Block]:
     if not lines:
         return []
@@ -229,7 +229,7 @@ def _blocks_for_lines(
                     and cap[1] <= pending[0].bbox[1] <= cap[3]]
             if caps:
                 bbox = union_bbox([bbox, *caps])
-            text = join_lines((line.text for line in pending), lexicon, page.number, warn)
+            text = join_lines((line.text for line in pending), lexicon, page.number, warn, resolver)
             result.append(Block(forced or kind, text, (SourceRegion(page.number, bbox),), lines=pending, body_size=body, container_width=right-anchor))
             pending = []
 
@@ -286,10 +286,10 @@ def _blocks_for_lines(
     return result
 
 
-def _table_blocks(page: PageData, lexicon: set[str], warn: Warn) -> list[Block]:
+def _table_blocks(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
     result = []
     for table in page.tables:
-        rows = [[join_lines((cell or "").splitlines(), lexicon, page.number, warn) for cell in row] for row in table.rows]
+        rows = [[join_lines((cell or "").splitlines(), lexicon, page.number, warn, resolver) for cell in row] for row in table.rows]
         # Ruled book tables sometimes have an extra, entirely empty decorative column.
         keep = [i for i in range(max(map(len, rows), default=0)) if any(i < len(row) and row[i] for row in rows)]
         rows = [[row[i] if i < len(row) else "" for i in keep] for row in rows]
@@ -303,24 +303,24 @@ def _table_blocks(page: PageData, lexicon: set[str], warn: Warn) -> list[Block]:
     return result
 
 
-def _ordered_region(lines: list[Line], specials: list[Block], page: PageData, bounds: BBox, lexicon: set[str], warn: Warn) -> list[Block]:
+def _ordered_region(lines: list[Line], specials: list[Block], page: PageData, bounds: BBox, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
     result: list[Block] = []
     remaining = list(lines)
     for block in sorted(specials, key=lambda b: b.sources[0].bbox[1]):
         top = block.sources[0].bbox[1]
         before = [line for line in remaining if line.bbox[1] < top]
-        result.extend(_blocks_for_lines(before, page, bounds, lexicon, warn))
+        result.extend(_blocks_for_lines(before, page, bounds, lexicon, warn, resolver))
         before_ids = {id(line) for line in before}
         remaining = [line for line in remaining if id(line) not in before_ids]
         result.append(block)
-    result.extend(_blocks_for_lines(remaining, page, bounds, lexicon, warn))
+    result.extend(_blocks_for_lines(remaining, page, bounds, lexicon, warn, resolver))
     return result
 
 
-def layout_page(page: PageData, lexicon: set[str], warn: Warn) -> list[Block]:
+def layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
     upright = [w for w in page.words if w.upright]
     rotated = [w for w in page.words if not w.upright]
-    table_blocks = _table_blocks(page, lexicon, warn)
+    table_blocks = _table_blocks(page, lexicon, warn, resolver)
     table_boxes = [t.bbox for t in page.tables]
     words = [w for w in upright if not any(contains(box, w) for box in table_boxes)]
     frames = [box for box in page.frames if not any(contains(t, Word("", box, 0)) for t in table_boxes)]
@@ -330,14 +330,14 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn) -> list[Block]:
         if not inside:
             continue
         words = [w for w in words if not contains(frame, w)]
-        framed_blocks.extend(_blocks_for_lines(group_lines(inside, page.body_size), page, frame, lexicon, warn, forced="aside"))
+        framed_blocks.extend(_blocks_for_lines(group_lines(inside, page.body_size), page, frame, lexicon, warn, resolver, forced="aside"))
     specials = table_blocks + framed_blocks
     # A sidebar may be the only text in one column; it still establishes
     # the gutter even though its words are processed in a separate container.
     gutter = _gutter([w for w in upright if not any(contains(box, w) for box in table_boxes)], page)
     bounds = union_bbox([w.bbox for w in words]) if words else (0, 0, page.width, page.height)
     if gutter is None:
-        ordered = _ordered_region(group_lines(words, page.body_size, split_gaps=True), specials, page, bounds, lexicon, warn)
+        ordered = _ordered_region(group_lines(words, page.body_size, split_gaps=True), specials, page, bounds, lexicon, warn, resolver)
     else:
         split, g0, g1 = gutter
         spans: list[Line] = []
@@ -353,7 +353,7 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn) -> list[Block]:
                 ordinary.extend(line.words)
         wide = [b for b in specials if b.sources[0].bbox[0] < split - page.body_size and b.sources[0].bbox[2] > split + page.body_size]
         narrow = [b for b in specials if b not in wide]
-        span_blocks = _blocks_for_lines(spans, page, bounds, lexicon, warn)
+        span_blocks = _blocks_for_lines(spans, page, bounds, lexicon, warn, resolver)
         for block in span_blocks:
             if block.kind == "paragraph":
                 block.kind = "aside"
@@ -369,7 +369,7 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn) -> list[Block]:
                 column = [w for w in band_words if ((w.bbox[0] + w.bbox[2]) / 2 < split) == is_left]
                 column_specials = [b for b in band_specials if ((b.sources[0].bbox[0] + b.sources[0].bbox[2]) / 2 < split) == is_left]
                 col_bounds = (bounds[0], 0, g0, page.height) if is_left else (g1, 0, bounds[2], page.height)
-                ordered.extend(_ordered_region(group_lines(column, page.body_size), column_specials, page, col_bounds, lexicon, warn))
+                ordered.extend(_ordered_region(group_lines(column, page.body_size), column_specials, page, col_bounds, lexicon, warn, resolver))
             word_ids = {id(w) for w in band_words}
             special_ids = {id(b) for b in band_specials}
             remaining_words = [w for w in remaining_words if id(w) not in word_ids]
@@ -380,12 +380,12 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn) -> list[Block]:
     ordered = [b for b in ordered if b.kind != "footnote"] + [b for b in ordered if b.kind == "footnote"]
     if rotated:
         warn(ConversionWarning("rotated_text", "Поворот текста не поддерживается: фрагмент сохранён отдельно для проверки.", (page.number,)))
-        text = join_lines((line.text for line in group_lines(rotated, page.body_size)), lexicon, page.number, warn)
+        text = join_lines((line.text for line in group_lines(rotated, page.body_size)), lexicon, page.number, warn, resolver)
         ordered.append(Block("raw", text, (SourceRegion(page.number, union_bbox([w.bbox for w in rotated])),), role="rotated"))
     return ordered
 
 
-def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn) -> list[Block]:
+def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
     result: list[Block] = []
     for block in blocks:
         # Marginal art credits must not break an otherwise clear page continuation.
@@ -400,7 +400,7 @@ def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn) -> l
             if ((next_page or next_column) and not _terminal(prev.text) and (full_line or prev.text.endswith("-"))
                     and (block.text[:1].islower() or prev.text.endswith("-"))
                     and abs(first.size - last.size) <= prev.body_size * 0.15):
-                prev.text = join_lines([prev.text, block.text], lexicon, b.page, warn)
+                prev.text = join_lines([prev.text, block.text], lexicon, b.page, warn, resolver)
                 prev.sources += block.sources
                 prev.lines += block.lines
                 continue

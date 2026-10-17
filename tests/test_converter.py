@@ -15,7 +15,7 @@ from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import Table, TableStyle
 
 from pdf_translator import Block, ConversionError, ConversionResult, SourceRegion, convert_pdf
-from pdf_translator.cli import main
+from pdf_translator.cli import _read_choice, main
 from pdf_translator.converter import parse_pages
 from pdf_translator.export import render
 from pdf_translator.text import join_lines, normalize
@@ -60,6 +60,26 @@ class TextTests(unittest.TestCase):
         self.assertEqual(text, "a fort-ress")
         self.assertEqual(warnings[0].pages, (3,))
         self.assertEqual(warnings[0].code, "ambiguous_hyphen")
+
+    def test_resolver_can_join_or_keep_with_context(self):
+        for choice, expected in [(True, "A fortress stands."), (False, "A fort-ress stands.")]:
+            with self.subTest(choice=choice):
+                issues, warnings = [], []
+                def resolve(issue):
+                    issues.append(issue)
+                    return choice
+                text = join_lines(["A fort-", "ress stands."], set(), 11, warnings.append, resolve)
+                self.assertEqual(text, expected)
+                self.assertEqual(len(issues), 1)
+                self.assertEqual((issues[0].page, issues[0].hyphenated, issues[0].joined), (11, "fort-ress", "fortress"))
+                self.assertIn("A fort-\nress stands.", issues[0].context)
+                self.assertFalse(warnings)
+
+    def test_known_hyphens_do_not_ask(self):
+        def unexpected(issue):
+            self.fail("A known word or compound should not prompt")
+        self.assertEqual(join_lines(["char-", "acter"], {"character"}, 1, self.fail, unexpected), "character")
+        self.assertEqual(join_lines(["well-", "known"], {"well-known"}, 1, self.fail, unexpected), "well-known")
 
     def test_numeric_dash_is_not_dehyphenated(self):
         self.assertEqual(self.join(["10-", "20 units"])[0], "10-20 units")
@@ -206,6 +226,38 @@ class PdfTests(unittest.TestCase):
         self.assertTrue(any(w.code == "complex_table" for w in result.warnings))
         self.assertIn("Second", result.text)
 
+    def test_resolver_changes_table_cell_in_both_formats(self):
+        def draw(c):
+            table = Table([["Place", "Notes"], ["Castle", "A fort-\nress stands."]], colWidths=[100, 180], rowHeights=[24, 40])
+            table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)]))
+            table.wrapOn(c, 500, 600)
+            table.drawOn(c, 50, 600)
+        self.pdf(draw)
+        issues = []
+        def resolve(issue):
+            issues.append(issue)
+            return True
+        result = convert_pdf(self.path, hyphen_resolver=resolve)
+        self.assertEqual(len(issues), 1)
+        self.assertIn("A fortress stands.", result.markdown)
+        self.assertIn("A fortress stands.", result.text)
+        self.assertEqual(result.blocks[0].rows[1][1], "A fortress stands.")
+        self.assertFalse(any(w.code == "ambiguous_hyphen" for w in result.warnings))
+
+    def test_resolver_handles_cross_page_hyphen_once(self):
+        def draw(c):
+            lines(c, ["A distant fort-"], top=700)
+            c.showPage()
+            lines(c, ["ress stands here."])
+        self.pdf(draw)
+        issues = []
+        def resolve(issue):
+            issues.append(issue)
+            return True
+        result = convert_pdf(self.path, hyphen_resolver=resolve)
+        self.assertEqual(len(issues), 1)
+        self.assertIn("A distant fortress stands here.", result.text)
+
     def test_sidebar_kept_separate_from_other_column(self):
         def draw(c):
             c.setFillColor(colors.lightgrey)
@@ -272,6 +324,65 @@ class CliTests(unittest.TestCase):
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             code = main(list(args))
         return code, stdout.getvalue(), stderr.getvalue()
+
+    def hyphen_pdf(self, repeat=1):
+        source = self.directory / "hyphens.pdf"
+        c = Canvas(str(source), pagesize=PAGE)
+        for i in range(repeat):
+            lines(c, ["A remote fort-", "ress stands here."], top=100 + i * 60)
+        c.save()
+        return source
+
+    def test_interactive_choices_apply_to_each_occurrence(self):
+        source = self.hyphen_pdf(repeat=2)
+        with patch("sys.stdin", io.StringIO("1\n2\n")):
+            code, _, stderr = self.run_cli(str(source), "--output-dir", str(self.directory / "out"))
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr.count("Неоднозначный перенос, страница PDF 1"), 2)
+        for suffix in (".md", ".txt"):
+            text = (self.directory / "out" / ("hyphens" + suffix)).read_text(encoding="utf-8")
+            self.assertIn("A remote fortress stands here.", text)
+            self.assertIn("A remote fort-ress stands here.", text)
+
+    def test_invalid_answer_reprompts(self):
+        source = self.hyphen_pdf()
+        with patch("sys.stdin", io.StringIO("wrong\n1\n")):
+            code, _, stderr = self.run_cli(str(source), "--output-dir", str(self.directory / "out"))
+        self.assertEqual(code, 0)
+        self.assertIn("Нажмите 1, 2 или Q", stderr)
+
+    def test_cancel_or_eof_never_writes_partial_results(self):
+        source = self.hyphen_pdf(repeat=2)
+        for answers, expected in [("1\nq\n", 130), ("1\n", 1)]:
+            out = self.directory / ("cancel" if expected == 130 else "eof")
+            with self.subTest(answers=answers), patch("sys.stdin", io.StringIO(answers)):
+                code, _, stderr = self.run_cli(str(source), "--output-dir", str(out))
+                self.assertEqual(code, expected)
+                self.assertFalse(out.exists())
+                self.assertNotIn("Traceback", stderr)
+
+    def test_explicit_noninteractive_modes(self):
+        source = self.hyphen_pdf()
+        for mode, word in [("join", "fortress"), ("keep", "fort-ress")]:
+            out = self.directory / mode
+            with self.subTest(mode=mode), patch("pdf_translator.cli._read_choice", side_effect=AssertionError("must not ask")):
+                code, _, _ = self.run_cli(str(source), "--output-dir", str(out), "--hyphens", mode)
+                self.assertEqual(code, 0)
+                self.assertIn(word, (out / "hyphens.txt").read_text(encoding="utf-8"))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows console key reader")
+    def test_windows_terminal_reads_single_key_without_enter(self):
+        with patch("sys.stdin.isatty", return_value=True), patch("msvcrt.getwch", return_value="1") as get_key:
+            self.assertEqual(_read_choice(), "1")
+            get_key.assert_called_once_with()
+
+    def test_real_subprocess_accepts_piped_choice(self):
+        source = self.hyphen_pdf()
+        out = self.directory / "process"
+        result = subprocess.run([sys.executable, "-m", "pdf_translator", str(source), "--output-dir", str(out)],
+                                input="1\n", capture_output=True, encoding="utf-8", cwd=ROOT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("fortress", (out / "hyphens.txt").read_text(encoding="utf-8"))
 
     @patch("pdf_translator.cli.convert_pdf", return_value=ConversionResult("# café\n", "café\n", (), ()))
     def test_utf8_outputs_and_overwrite(self, convert):

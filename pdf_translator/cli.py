@@ -7,7 +7,54 @@ import tempfile
 from pathlib import Path
 
 from .converter import convert_pdf
-from .models import ConversionError
+from .models import ConversionError, HyphenationIssue
+
+
+def _read_choice() -> str:
+    """One key in a terminal, one answer per line when stdin is redirected."""
+    if not sys.stdin.isatty():
+        value = sys.stdin.readline()
+        if not value:
+            raise EOFError
+        return value.strip().casefold()
+    if os.name == "nt":
+        import msvcrt
+        value = msvcrt.getwch()
+        if value in ("\x00", "\xe0"):
+            msvcrt.getwch()
+            return ""
+    else:
+        import termios
+        import tty
+        descriptor = sys.stdin.fileno()
+        original = termios.tcgetattr(descriptor)
+        try:
+            tty.setcbreak(descriptor)
+            value = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(descriptor, termios.TCSADRAIN, original)
+        if not value:
+            raise EOFError
+    return value.casefold()
+
+
+def _prompt_hyphen(issue: HyphenationIssue) -> bool:
+    print(f"\nНеоднозначный перенос, страница PDF {issue.page}: {issue.hyphenated}", file=sys.stderr)
+    print("Контекст:\n" + issue.context, file=sys.stderr)
+    while True:
+        print(f"[1] Слить: {issue.joined}   [2] Оставить дефис: {issue.hyphenated}   [Q] Отменить\n> ", end="", file=sys.stderr, flush=True)
+        try:
+            answer = _read_choice()
+        except EOFError as exc:
+            raise ConversionError("Ввод закончился до выбора для неоднозначного переноса. Запустите в терминале или явно укажите --hyphens keep / --hyphens join.") from exc
+        print(answer, file=sys.stderr)
+        if answer == "1":
+            return True
+        if answer == "2":
+            return False
+        if answer in ("q", "\x1b", "\x03"):
+            raise KeyboardInterrupt
+        print("Нажмите 1, 2 или Q.", file=sys.stderr)
 
 
 def _write_outputs(outputs: dict[Path, str], overwrite: bool) -> None:
@@ -54,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pages", help="страницы PDF, начиная с 1: 10-25 или 1,3-5")
     parser.add_argument("--output-dir", type=Path, default=Path("output"), help="папка результата (по умолчанию: output)")
     parser.add_argument("--overwrite", action="store_true", help="разрешить замену существующих результатов")
+    parser.add_argument("--hyphens", choices=("ask", "keep", "join"), default="ask", help="неоднозначные переносы: спросить (по умолчанию), сохранить дефисы или убрать их")
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     args = parser.parse_args(argv)
     try:
@@ -64,7 +112,8 @@ def main(argv: list[str] | None = None) -> int:
             for target in targets:
                 if target.exists() or target.is_symlink():
                     raise ConversionError(f"Файл уже существует: {target}. Для перезаписи укажите --overwrite.")
-        result = convert_pdf(args.input, pages=args.pages)
+        resolver = _prompt_hyphen if args.hyphens == "ask" else lambda issue: args.hyphens == "join"
+        result = convert_pdf(args.input, pages=args.pages, hyphen_resolver=resolver)
         for warning in result.warnings:
             numbers = ", ".join(map(str, warning.pages))
             print(f"Предупреждение [{warning.code}], стр. {numbers}: {warning.message}", file=sys.stderr)
@@ -72,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
         for target in targets:
             print(f"Сохранено: {target.resolve()}")
         return 0
+    except KeyboardInterrupt:
+        print("\nКонвертация отменена.", file=sys.stderr)
+        return 130
     except (ConversionError, OSError) as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
         return 1
