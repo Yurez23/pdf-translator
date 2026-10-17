@@ -1,6 +1,7 @@
 """Read a PDF, recover its structure, and return UI-independent results."""
 
 import re
+import math
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
@@ -11,7 +12,7 @@ from pdfminer.pdfparser import PDFSyntaxError
 from pdfplumber.utils.exceptions import PdfminerException
 
 from .export import render
-from .layout import PageData, TableData, body_size, contains, integrate_dropcaps, layout_page, merge_continuations, remove_running_margins
+from .layout import PageData, TableData, body_size, contains, integrate_dropcaps, layout_page, merge_continuations, remove_marginal_credits, remove_running_margins
 from .models import BBox, ConversionError, ConversionResult, ConversionWarning, Word
 from .text import normalize, vocabulary
 
@@ -48,8 +49,12 @@ def _read_page(page, warn) -> PageData:
         font = Counter(c["fontname"] for c in chars).most_common(1)[0][0] if chars else ""
         text = normalize(item["text"])
         if text:
-            words.append(Word(text, (item["x0"], item["top"], item["x1"], item["bottom"]), size, font, item.get("upright", True)))
+            angles = Counter(round(math.degrees(math.atan2(c["matrix"][1], c["matrix"][0]))) % 360 for c in chars)
+            angle = angles.most_common(1)[0][0] if angles else 0
+            words.append(Word(text, (item["x0"], item["top"], item["x1"], item["bottom"]), size, font, item.get("upright", True), angle))
     data = PageData(page.page_number, page.width, page.height, words, body_size(words))
+    remove_marginal_credits(data)
+    words = data.words
     if not words:
         warn(ConversionWarning("empty_page", "На странице нет извлекаемого текста; возможно, требуется OCR.", (page.page_number,)))
         return data

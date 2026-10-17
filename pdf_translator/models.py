@@ -31,6 +31,7 @@ class Word:
     size: float
     font: str = ""
     upright: bool = True
+    angle: float = 0.0
 
 
 @dataclass

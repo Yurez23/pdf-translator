@@ -224,13 +224,34 @@ class PdfTests(unittest.TestCase):
             c.line(50, 115, 170, 115)
             lines(c, ["1 A small footnote.", "Its continuation stays separate."], top=695, size=8, leading=11)
             c.saveState()
-            c.translate(20, 200)
+            c.translate(230, 200)
             c.rotate(90)
             c.setFont("Helvetica", 8)
             c.drawString(0, 0, "Artist credit")
             c.restoreState()
         result = self.pdf(draw)
         self.assertTrue(any(b.kind == "footnote" for b in result.blocks))
+        self.assertTrue(any(w.code == "rotated_text" for w in result.warnings))
+
+    def test_only_small_name_like_vertical_margin_credits_are_removed(self):
+        def draw(c):
+            lines(c, ["Body text establishes the normal font and its column boundaries."])
+            for x, y, size, text in [(20, 150, 8, "DENMAN ROOKE"), (580, 150, 8, "ANOTHER ARTIST"),
+                                     (230, 150, 8, "USEFUL DIAGRAM"), (20, 350, 10, "LARGE LABEL"),
+                                     (580, 350, 8, "AXIS 123"), (20, 500, 8, "SINGLE")]:
+                c.saveState()
+                c.translate(x, y)
+                c.rotate(90)
+                c.setFont("Helvetica", size)
+                c.drawString(0, 0, text)
+                c.restoreState()
+        result = self.pdf(draw)
+        self.assertNotIn("NAMNED", result.text)
+        self.assertNotIn("REHTONA", result.text)
+        self.assertIn("MARGAID", result.text)
+        self.assertIn("EGRAL", result.text)
+        self.assertIn("321", result.text)  # Existing raw rotated-text order is retained.
+        self.assertIn("ELGNIS", result.text)
         self.assertTrue(any(w.code == "rotated_text" for w in result.warnings))
 
     def test_api_has_no_output_side_effects(self):
@@ -318,6 +339,13 @@ class ReferencePdfTests(unittest.TestCase):
     def test_portrait_label_does_not_join_ideals_heading(self):
         ideals = next(b for b in self.result.blocks if b.kind == "heading" and b.text.startswith("Ideals"))
         self.assertEqual(ideals.text, "Ideals")
+
+    def test_marginal_artist_names_are_filtered_but_caption_survives(self):
+        self.assertFalse(any(b.role == "rotated" for b in self.result.blocks))
+        self.assertFalse(any(w.code == "rotated_text" for w in self.result.warnings))
+        for fragment in ("EKOOR", "NAMNED", "IRAASOKAH", "REGREBEES", "NENÖKTYR"):
+            self.assertNotIn(fragment, self.result.text)
+        self.assertIn("HOUSE KHOLIN", self.result.text.upper())
 
     def test_all_paragraphs_are_single_lines_and_have_geometry(self):
         for block in self.result.blocks:
