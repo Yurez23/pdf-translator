@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdf-translator"
+version = "0.1.0"
+description = "Local PDF to readable Markdown and plain text conversion"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["pdfplumber>=0.11.9,<0.12"]
+
+[project.optional-dependencies]
+dev = ["reportlab>=4,<5"]
+
+[project.scripts]
+pdf-translator = "pdf_translator.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pdf_translator*"]
