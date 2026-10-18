@@ -34,6 +34,7 @@ class PageData:
     frames: list[BBox] = field(default_factory=list)
     separators: list[float] = field(default_factory=list)
     dropcaps: list[BBox] = field(default_factory=list)
+    images: list[BBox] = field(default_factory=list)
 
 
 def contains(box: BBox, word: Word) -> bool:

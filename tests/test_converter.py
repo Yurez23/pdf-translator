@@ -1,14 +1,18 @@
 """Small generated PDFs exercise real extraction, not just implementation details."""
 
 import contextlib
+import collections
 import io
 import subprocess
 import sys
 import tempfile
+import re
+import unicodedata
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pdfplumber
 from reportlab.lib import colors
 from reportlab.lib.pdfencrypt import StandardEncryption
 from reportlab.pdfgen.canvas import Canvas
@@ -451,12 +455,55 @@ class ReferencePdfTests(unittest.TestCase):
         ideals = next(b for b in self.result.blocks if b.kind == "heading" and b.text.startswith("Ideals"))
         self.assertEqual(ideals.text, "Ideals")
 
-    def test_marginal_artist_names_are_filtered_but_caption_survives(self):
+    def test_artist_names_and_figure_captions_are_filtered(self):
         self.assertFalse(any(b.role == "rotated" for b in self.result.blocks))
         self.assertFalse(any(w.code == "rotated_text" for w in self.result.warnings))
         for fragment in ("EKOOR", "NAMNED", "IRAASOKAH", "REGREBEES", "NENÖKTYR"):
             self.assertNotIn(fragment, self.result.text)
-        self.assertIn("HOUSE KHOLIN", self.result.text.upper())
+        for caption in ("navani", "kholin", "heraldry"):
+            self.assertNotIn(caption, self.result.text.casefold())
+            self.assertNotIn(caption, self.result.markdown.casefold())
+        self.assertIn("earn their ongoing loyalty", self.result.text)
+
+    def test_all_other_source_letters_and_digits_are_preserved(self):
+        def characters(value):
+            return collections.Counter(c for c in unicodedata.normalize("NFKC", value).casefold() if c.isalnum())
+        expected = collections.Counter()
+        # Explicit locations in this reference book, independent of the detector.
+        labels = {8: [(363, 207, 434, 222)], 11: [(405, 53, 474, 78)]}
+        with pdfplumber.open(ROOT / "example.pdf") as pdf:
+            for page in pdf.pages:
+                clean = page.dedupe_chars(tolerance=.5, extra_attrs=("fontname", "size"))
+                for word in clean.extract_words():
+                    if word["top"] > 740:  # Running footer.
+                        continue
+                    if not word["upright"] and (word["x1"] < 50 or word["x0"] > 562):
+                        continue  # The five known vertical artist credits.
+                    x, y = (word["x0"]+word["x1"])/2, (word["top"]+word["bottom"])/2
+                    if any(a <= x <= c and b <= y <= d for a,b,c,d in labels.get(page.page_number, [])):
+                        continue
+                    expected.update(characters(word["text"]))
+        self.assertEqual(characters(self.result.text), expected)
+
+    def test_all_seven_tables_keep_their_98_source_cells(self):
+        tables = [b for b in self.result.blocks if b.kind == "table"]
+        checked, cells = 0, 0
+        with pdfplumber.open(ROOT / "example.pdf") as pdf:
+            for page in pdf.pages:
+                for table in page.dedupe_chars(tolerance=.5, extra_attrs=("fontname", "size")).find_tables():
+                    rows = table.extract(x_tolerance=2, y_tolerance=3)
+                    keep = [i for i in range(max(map(len, rows))) if any(i < len(r) and r[i] for r in rows)]
+                    rows = [[r[i] if i < len(r) else "" for i in keep] for r in rows]
+                    actual = next(b for b in tables if b.sources[0].page == page.page_number
+                                  and all(abs(a-c) < 1 for a,c in zip(b.sources[0].bbox, table.bbox)))
+                    self.assertEqual(len(actual.rows), len(rows))
+                    for expected_row, actual_row in zip(rows, actual.rows):
+                        self.assertEqual(len(expected_row), len(actual_row))
+                        for expected, value in zip(expected_row, actual_row):
+                            self.assertEqual(re.sub(r"\s", "", expected or ""), re.sub(r"\s", "", value))
+                            cells += 1
+                    checked += 1
+        self.assertEqual((checked, cells), (7, 98))
 
     def test_all_paragraphs_are_single_lines_and_have_geometry(self):
         for block in self.result.blocks:

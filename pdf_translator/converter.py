@@ -11,6 +11,7 @@ from pdfminer.pdfdocument import PDFPasswordIncorrect
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfplumber.utils.exceptions import PdfminerException
 
+from .captions import remove_figure_captions
 from .export import render
 from .layout import PageData, TableData, body_size, contains, integrate_dropcaps, layout_page, merge_continuations, remove_marginal_credits, remove_running_margins
 from .models import BBox, ConversionError, ConversionResult, ConversionWarning, HyphenResolver, Word
@@ -39,6 +40,13 @@ def parse_pages(pages: str | Sequence[int] | None, total: int) -> list[int]:
     return sorted(selected)
 
 
+def _text_color(value) -> tuple[float, ...] | None:
+    channels = (value,) if isinstance(value, (int, float)) else value
+    if not isinstance(channels, (tuple, list)) or not all(isinstance(v, (int, float)) for v in channels):
+        return None
+    return tuple(round(float(v), 3) for v in channels)
+
+
 def _read_page(page, warn) -> PageData:
     clean = page.dedupe_chars(tolerance=0.5, extra_attrs=("fontname", "size"))
     words = []
@@ -51,8 +59,11 @@ def _read_page(page, warn) -> PageData:
         if text:
             angles = Counter(round(math.degrees(math.atan2(c["matrix"][1], c["matrix"][0]))) % 360 for c in chars)
             angle = angles.most_common(1)[0][0] if angles else 0
-            words.append(Word(text, (item["x0"], item["top"], item["x1"], item["bottom"]), size, font, item.get("upright", True), angle))
+            colors = Counter(_text_color(c.get("non_stroking_color")) for c in chars)
+            color = colors.most_common(1)[0][0] if colors else None
+            words.append(Word(text, (item["x0"], item["top"], item["x1"], item["bottom"]), size, font, item.get("upright", True), angle, color))
     data = PageData(page.page_number, page.width, page.height, words, body_size(words))
+    data.images = [(im["x0"], im["top"], im["x1"], im["bottom"]) for im in page.images if not im.get("imagemask")]
     remove_marginal_credits(data)
     words = data.words
     if not words:
@@ -84,6 +95,7 @@ def _read_page(page, warn) -> PageData:
             data.frames.append(box)
     data.separators = [shape["top"] for shape in page.lines if shape["width"] > data.body_size * 4 and shape["height"] < 2]
     integrate_dropcaps(data)
+    remove_figure_captions(data)
     return data
 
 

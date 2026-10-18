@@ -44,6 +44,7 @@ class Word:
     font: str = ""
     upright: bool = True
     angle: float = 0.0
+    color: tuple[float, ...] | None = None
 
 
 @dataclass
