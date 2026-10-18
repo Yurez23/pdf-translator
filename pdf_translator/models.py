@@ -75,6 +75,9 @@ class Block:
     container_width: float = field(default=0.0, repr=False)
     role: str = field(default="", repr=False)
     container_left: float | None = field(default=None, repr=False)
+    # A framed sidebar owns its heading/paragraph/list blocks. Its flat text is
+    # retained for search/compatibility; exporters use children without duplication.
+    children: list["Block"] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

@@ -503,6 +503,28 @@ class ReferencePdfTests(unittest.TestCase):
         ideals = next(b for b in self.result.blocks if b.kind == "heading" and b.text.startswith("Ideals"))
         self.assertEqual(ideals.text, "Ideals")
 
+    def test_using_purposes_sidebar_is_one_container_with_two_paragraphs(self):
+        matches = [b for b in self.result.blocks if b.kind == "aside"
+                   and b.text.startswith("Using Purposes and Obstacles")]
+        self.assertEqual(len(matches), 1)
+        aside = matches[0]
+        self.assertEqual([b.kind for b in aside.children], ["heading", "paragraph", "paragraph"])
+        self.assertEqual(aside.children[0].text, "Using Purposes and Obstacles")
+        self.assertTrue(aside.children[1].text.startswith("Purposes and obstacles don’t have specific rules"))
+        self.assertTrue(aside.children[2].text.startswith("In these moments, try to play to your character"))
+        self.assertEqual(aside.sources[0].page, 2)
+        quote = next(part for part in self.result.markdown.split("\n\n")
+                     if part.startswith("> **Using Purposes and Obstacles**"))
+        self.assertEqual(quote.count("\n>\n"), 2)
+        self.assertEqual(len(quote.splitlines()), 5)
+
+    def test_all_four_framed_sidebars_are_containers(self):
+        asides = [b for b in self.result.blocks if b.kind == "aside" and b.children]
+        self.assertEqual(len(asides), 4)
+        self.assertEqual([b.children[0].text for b in asides],
+                         ["Using Purposes and Obstacles", "Radiant Ideal Goals",
+                          "GM Tip: When to Conclude a Goal", "GM Tip: Offering Meaningful Rewards"])
+
     def test_artist_names_and_figure_captions_are_filtered(self):
         self.assertFalse(any(b.role == "rotated" for b in self.result.blocks))
         self.assertFalse(any(w.code == "rotated_text" for w in self.result.warnings))

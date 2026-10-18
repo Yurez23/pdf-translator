@@ -218,7 +218,7 @@ def _hanging_lead_in(line: Line, following: Line | None, body: float) -> bool:
 
 def _blocks_for_lines(
     lines: list[Line], page: PageData, bounds: BBox, lexicon: set[str], warn: Warn,
-    resolver: HyphenResolver | None = None, *, forced: str | None = None,
+    resolver: HyphenResolver | None = None,
 ) -> list[Block]:
     if not lines:
         return []
@@ -240,7 +240,7 @@ def _blocks_for_lines(
             if caps:
                 bbox = union_bbox([bbox, *caps])
             text = join_lines((line.text for line in pending), lexicon, page.number, warn, resolver)
-            result.append(Block(forced or kind, text, (SourceRegion(page.number, bbox),),
+            result.append(Block(kind, text, (SourceRegion(page.number, bbox),),
                                 lines=pending, body_size=body, container_width=right-anchor,
                                 container_left=anchor))
             pending = []
@@ -260,7 +260,7 @@ def _blocks_for_lines(
             # Final levels are assigned from all document styles after layout.
             level = 0
             prev_heading = result[-1] if result else None
-            if (prev_heading and prev_heading.kind == (forced or "heading") and prev_heading.level == level
+            if (prev_heading and prev_heading.kind == "heading" and prev_heading.level == level
                     and prev_heading.lines and abs(prev_heading.lines[-1].size - line.size) < 0.5
                     and 0 <= line.bbox[1] - prev_heading.lines[-1].bbox[3] <= body * 0.45
                     and abs(line.bbox[0] - prev_heading.lines[-1].bbox[0]) < body):
@@ -268,7 +268,7 @@ def _blocks_for_lines(
                 prev_heading.lines.append(line)
                 prev_heading.sources = (SourceRegion(page.number, union_bbox([prev_heading.sources[0].bbox, line.bbox])),)
             else:
-                result.append(Block(forced or "heading", text.replace("\u00ad", ""), (SourceRegion(page.number, line.bbox),),
+                result.append(Block("heading", text.replace("\u00ad", ""), (SourceRegion(page.number, line.bbox),),
                                     level=level, lines=[line], body_size=body))
             continue
         footnote = (line.size < body * 0.91 and line.bbox[1] > page.height * 0.72
@@ -345,7 +345,15 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenR
         if not inside:
             continue
         words = [w for w in words if not contains(frame, w)]
-        framed_blocks.extend(_blocks_for_lines(group_lines(inside, page.body_size), page, frame, lexicon, warn, resolver, forced="aside"))
+        children = _blocks_for_lines(group_lines(inside, page.body_size), page, frame, lexicon, warn, resolver)
+        for child in children:
+            if child.kind == "heading":
+                child.role = "aside_title"
+        framed_blocks.append(Block("aside", " ".join(child.text for child in children),
+                                   (SourceRegion(page.number, frame),), children=children,
+                                   lines=[line for child in children for line in child.lines],
+                                   body_size=page.body_size, container_width=frame[2] - frame[0],
+                                   container_left=frame[0]))
     specials = table_blocks + framed_blocks
     # A sidebar may be the only text in one column; it still establishes
     # the gutter even though its words are processed in a separate container.
