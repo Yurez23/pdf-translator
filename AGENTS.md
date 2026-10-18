@@ -30,6 +30,30 @@
 - OCR, translation, and a web interface are outside the project's scope.
 - Do not commit or push unless the user explicitly requests it.
 
+## Documentation maintenance before commits
+
+- Before every user-authorized commit, review the entire documentation set for
+  impact. If the change is significant for understanding, using, developing, or
+  checking the project, update every affected document before committing. Do not
+  limit the review to README.md or leave conflicting descriptions elsewhere.
+- Significant changes include behavior, CLI/API contracts, models, algorithms,
+  file/module organization, dependencies, warnings, limitations, tests, workflows,
+  and project instructions. Small internal changes may need no prose updates;
+  still assess their impact rather than rewriting unrelated documentation.
+- Keep the offline HTML documentation at `output/documentation.html` synchronized
+  with the current Markdown documentation. Rebuild it when documentation changes
+  and when changes affect source files embedded in that HTML snapshot. Do not
+  manually patch generated HTML instead of updating its sources and rebuilding.
+- Follow the documentation maintenance and HTML verification steps in
+  [the development guide](docs/development.md). Check internal links, mobile
+  rendering, and snapshot freshness. If the local builder or verification tools
+  are unavailable, restore the required tooling or report the blocker; do not
+  silently leave the HTML stale or claim it was verified.
+- Documentation maintenance is part of an authorized change/commit workflow,
+  not permission to commit, push, run an independent audit, or regenerate PDF
+  conversion outputs. Keep existing Git-ignore boundaries for generated files;
+  updating the local HTML does not mean force-adding it to Git.
+
 ## Independent PDF conversion audits
 
 Only launch an audit subagent when the user requests an independent/delegated
