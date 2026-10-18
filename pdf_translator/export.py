@@ -28,7 +28,10 @@ def render(blocks: list[Block]) -> tuple[str, str]:
             md.append("\n".join(table))
             txt.append("\n".join("\t".join(row) for row in block.rows))
         elif block.kind == "heading":
-            md.append("#" * max(1, min(block.level, 6)) + " " + _escape(block.text))
+            if block.role in ("table_title", "title_label"):
+                md.append("**" + _escape(block.text) + "**")
+            else:
+                md.append("#" * max(1, min(block.level, 6)) + " " + _escape(block.text))
             txt.append(block.text)
         elif block.kind in ("aside", "footnote", "raw"):
             md.append("> " + _escape(block.text))

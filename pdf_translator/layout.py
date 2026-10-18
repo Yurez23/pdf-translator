@@ -190,10 +190,6 @@ def _gutter(words: list[Word], page: PageData) -> tuple[float, float, float] | N
     return split, x0, x1
 
 
-def _heading_level(size: float, body: float) -> int:
-    return 1 if size >= body * 2 else 2 if size >= body * 1.5 else 3
-
-
 def _terminal(text: str) -> bool:
     return bool(re.search(r"[.!?…:][\"'’”\])]*$", text.strip()))
 
@@ -261,7 +257,8 @@ def _blocks_for_lines(
             is_heading = True
         if is_heading:
             flush()
-            level = _heading_level(line.size, body)
+            # Final levels are assigned from all document styles after layout.
+            level = 0
             prev_heading = result[-1] if result else None
             if (prev_heading and prev_heading.kind == (forced or "heading") and prev_heading.level == level
                     and prev_heading.lines and abs(prev_heading.lines[-1].size - line.size) < 0.5
@@ -315,7 +312,7 @@ def _table_blocks(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphe
         sources = (SourceRegion(page.number, table.bbox),)
         if complex_table:
             warn(ConversionWarning("complex_table", "Таблица с объединёнными ячейками: текст сохранён отдельным блоком; проверьте структуру.", (page.number,)))
-            result.append(Block("raw", " / ".join(" | ".join(row) for row in rows), sources))
+            result.append(Block("raw", " / ".join(" | ".join(row) for row in rows), sources, role="complex_table"))
         else:
             result.append(Block("table", "", sources, rows=rows))
     return result

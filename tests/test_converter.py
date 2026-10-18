@@ -478,6 +478,27 @@ class ReferencePdfTests(unittest.TestCase):
         self.assertIn("Chasmfiend", " ".join(companion.rows[-1]))
         self.assertNotIn("Chapter 8: Goals and Rewards", self.result.text)
 
+    def test_document_heading_hierarchy_and_auxiliary_titles(self):
+        headings = {b.text: b for b in self.result.blocks if b.kind == "heading"}
+        expected = {"Goals and Rewards": 1, "Purpose and Obstacle": 2,
+                    "Rewards": 2, "Reward Categories": 2,
+                    "Purpose": 3, "Goal Rewards": 3, "Companions": 3,
+                    "Companion Activities": 4, "Companions in Scenes": 4}
+        for title, level in expected.items():
+            with self.subTest(title=title):
+                self.assertEqual(headings[title].level, level)
+                self.assertIn("#" * level + " " + title, self.result.markdown.splitlines())
+        self.assertEqual(headings["chapter 8"].role, "title_label")
+        self.assertEqual(sum(b.role == "table_title" for b in headings.values()), 7)
+        self.assertIn("**Example Companions by Tier**", self.result.markdown.splitlines())
+
+    def test_page_six_keeps_the_same_heading_levels_without_chapter_title(self):
+        selected = convert_pdf(ROOT / "example.pdf", pages="6")
+        titles = {b.text: b.level for b in selected.blocks if b.kind == "heading" and not b.role}
+        self.assertEqual(titles, {"Reward Categories": 2, "Companions": 3,
+                                  "Companion Activities": 4, "Companions in Scenes": 4})
+        self.assertTrue(all(s.page == 6 for b in selected.blocks for s in b.sources))
+
     def test_portrait_label_does_not_join_ideals_heading(self):
         ideals = next(b for b in self.result.blocks if b.kind == "heading" and b.text.startswith("Ideals"))
         self.assertEqual(ideals.text, "Ideals")

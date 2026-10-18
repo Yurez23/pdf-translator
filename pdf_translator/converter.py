@@ -13,6 +13,7 @@ from pdfplumber.utils.exceptions import PdfminerException
 
 from .captions import remove_figure_captions
 from .export import render
+from .headings import assign_heading_levels
 from .layout import PageData, TableData, body_size, contains, integrate_dropcaps, layout_page, merge_continuations, remove_marginal_credits, remove_running_margins
 from .models import BBox, ConversionError, ConversionResult, ConversionWarning, HyphenResolver, Word
 from .text import normalize, vocabulary
@@ -103,6 +104,8 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
     """Convert selected 1-based PDF pages without network access or file writes.
 
     ``pages`` accepts e.g. ``"1,3-5"`` or a sequence of physical page numbers.
+    Heading styles and running margins use the whole PDF for context; only
+    selected pages contribute output, hyphenation choices, and warnings.
     Warnings are structured data; the CLI is responsible for displaying them.
     ``hyphen_resolver(issue)`` may return True to join or False to keep a hyphen.
     Without a resolver, ambiguous hyphens are retained with warnings.
@@ -126,11 +129,14 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
             if not pdf.pages:
                 raise ConversionError("В PDF нет страниц.")
             numbers = parse_pages(pages, len(pdf.pages))
+            selected_pages = set(numbers)
             extracted = []
-            for number in numbers:
+            for number in range(1, len(pdf.pages) + 1):
                 page = pdf.pages[number - 1]
                 try:
-                    extracted.append(_read_page(page, warn))
+                    # Full-document context keeps heading levels stable for
+                    # --pages. Unselected pages cannot emit warnings or prompt.
+                    extracted.append(_read_page(page, warn if number in selected_pages else lambda _: None))
                 finally:
                     page.close()
     except ConversionError:
@@ -144,13 +150,18 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
         raise ConversionError("Не удалось прочитать PDF: файл повреждён или имеет неподдерживаемую структуру.") from exc
     except (PDFSyntaxError, OSError, ValueError, TypeError, KeyError, IndexError, EOFError) as exc:
         raise ConversionError(f"Не удалось прочитать PDF: файл повреждён или имеет неподдерживаемую структуру ({type(exc).__name__}).") from exc
-    if not any(page.words for page in extracted):
+    if not any(page.words for page in extracted if page.number in selected_pages):
         raise ConversionError("В выбранных страницах нет извлекаемого текста. Для сканов требуется OCR, который пока не поддерживается.")
-    lexicon = vocabulary(w.text for page in extracted for w in page.words)
+    lexicon = vocabulary(w.text for page in extracted if page.number in selected_pages for w in page.words)
     remove_running_margins(extracted)
-    blocks = []
+    document_blocks = []
     for page in extracted:
-        blocks.extend(layout_page(page, lexicon, warn, hyphen_resolver))
+        if page.number in selected_pages:
+            document_blocks.extend(layout_page(page, lexicon, warn, hyphen_resolver))
+        else:
+            document_blocks.extend(layout_page(page, set(), lambda _: None))
+    assign_heading_levels(document_blocks, selected_pages, warn)
+    blocks = [block for block in document_blocks if block.sources[0].page in selected_pages]
     blocks = merge_continuations(blocks, lexicon, warn, hyphen_resolver)
     markdown, text = render(blocks)
     if not text.strip():
