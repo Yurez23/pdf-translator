@@ -207,6 +207,19 @@ def _lead_in(line: Line) -> bool:
     return bool(bold and len(bold) < len(line.words) and bold[-1].endswith((".", ":")))
 
 
+def _hanging_lead_in(line: Line, following: Line | None, body: float) -> bool:
+    """Bold prose is a list only with evidence of a hanging continuation.
+
+    A first-line paragraph indent goes in the opposite direction. A completed
+    one-line paragraph must not borrow the indent of the next paragraph.
+    """
+    return bool(following and _lead_in(line) and not _terminal(line.text)
+                and not _lead_in(following) and not is_list(following.text)
+                and 0 <= following.bbox[1] - line.bbox[3] <= body * 0.8
+                and body * 0.5 < following.bbox[0] - line.bbox[0] < body * 3
+                and abs(following.size - line.size) <= body * 0.15)
+
+
 def _blocks_for_lines(
     lines: list[Line], page: PageData, bounds: BBox, lexicon: set[str], warn: Warn,
     resolver: HyphenResolver | None = None, *, forced: str | None = None,
@@ -231,10 +244,12 @@ def _blocks_for_lines(
             if caps:
                 bbox = union_bbox([bbox, *caps])
             text = join_lines((line.text for line in pending), lexicon, page.number, warn, resolver)
-            result.append(Block(forced or kind, text, (SourceRegion(page.number, bbox),), lines=pending, body_size=body, container_width=right-anchor))
+            result.append(Block(forced or kind, text, (SourceRegion(page.number, bbox),),
+                                lines=pending, body_size=body, container_width=right-anchor,
+                                container_left=anchor))
             pending = []
 
-    for line in lines:
+    for index, line in enumerate(lines):
         text = normalize(line.text)
         if not text:
             continue
@@ -263,7 +278,9 @@ def _blocks_for_lines(
                     and (bool(re.match(r"^(?:\d+[.)]?|[*†‡])\s*\w", text))
                          or any(0 <= line.bbox[1] - y < body * 5 for y in page.separators)))
         lead_in = _lead_in(line)
-        new_kind = "footnote" if footnote else "list_item" if is_list(text) or lead_in else "paragraph"
+        following = lines[index + 1] if index + 1 < len(lines) else None
+        list_item = is_list(text) or lead_in and _hanging_lead_in(line, following, body)
+        new_kind = "footnote" if footnote else "list_item" if list_item else "paragraph"
         if pending:
             prev = pending[-1]
             gap = line.bbox[1] - prev.bbox[3]
@@ -386,24 +403,86 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenR
     return ordered
 
 
+def _line_font(line: Line) -> str:
+    fonts: Counter[str] = Counter()
+    for word in line.words:
+        # PDF subset prefixes can differ between pages of the same document.
+        fonts[re.sub(r"^[A-Z]{6}\+", "", word.font)] += len(word.text)
+    return fonts.most_common(1)[0][0] if fonts else ""
+
+
+def _closes_open_bracket(previous: str, following: str) -> bool:
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    stack: list[str] = []
+    for char in previous:
+        if char in pairs:
+            stack.append(pairs[char])
+        elif stack and char == stack[-1]:
+            stack.pop()
+    depth = len(stack)
+    if not depth:
+        return False
+    for char in following:
+        if char in ".!?…":
+            break
+        if char in pairs:
+            stack.append(pairs[char])
+        elif stack and char == stack[-1]:
+            stack.pop()
+            if len(stack) < depth:
+                return True
+    return False
+
+
+def _continuation_start(previous: str, following: str) -> bool:
+    # A quotation mark is not a sentence boundary. Capitalized continuations
+    # still need an extra signal: closing a bracket left open on the prior page.
+    start = following.lstrip("\"'‘“«")
+    return (start[:1].islower() or previous.endswith("-")
+            or _closes_open_bracket(previous, following))
+
+
+def _continuation_alignment(previous: Block, following: Block) -> bool:
+    if previous.container_left is None or following.container_left is None:
+        return False
+    tolerance = previous.body_size * 0.45
+    first = following.lines[0]
+    # Returning to the left after the first line identifies a NEW paragraph,
+    # including a paragraph following a list with a similar hanging indent.
+    if any(line.bbox[0] < first.bbox[0] - tolerance for line in following.lines[1:]):
+        return False
+    offset = first.bbox[0] - following.container_left
+    if abs(offset) <= tolerance:
+        return True
+    if previous.kind == "list_item" and len(previous.lines) > 1:
+        hanging = previous.lines[-1].bbox[0] - previous.container_left
+        return hanging > previous.body_size * 0.5 and abs(offset - hanging) <= tolerance
+    return False
+
+
 def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
     result: list[Block] = []
     for block in blocks:
         # Marginal art credits must not break an otherwise clear page continuation.
         prev = next((b for b in reversed(result) if b.role != "rotated" and b.kind != "footnote"), None)
-        if prev and prev.kind == block.kind == "paragraph" and prev.lines and block.lines:
+        if (prev and prev.kind in ("paragraph", "list_item") and block.kind == "paragraph"
+                and prev.lines and block.lines):
             a, b = prev.sources[-1], block.sources[0]
             next_page = b.page == a.page + 1
-            next_column = a.page == b.page and b.bbox[0] > a.bbox[0] + prev.body_size * 4
+            next_column = (a.page == b.page and prev.container_left is not None and block.container_left is not None
+                           and block.container_left > prev.container_left + prev.body_size * 4)
             last = prev.lines[-1]
             first = block.lines[0]
             full_line = last.bbox[2] - a.bbox[0] >= prev.container_width * 0.75
             if ((next_page or next_column) and not _terminal(prev.text) and (full_line or prev.text.endswith("-"))
-                    and (block.text[:1].islower() or prev.text.endswith("-"))
-                    and abs(first.size - last.size) <= prev.body_size * 0.15):
+                    and _continuation_start(prev.text, block.text) and _continuation_alignment(prev, block)
+                    and abs(first.size - last.size) <= prev.body_size * 0.15
+                    and _line_font(first) == _line_font(last)):
                 prev.text = join_lines([prev.text, block.text], lexicon, b.page, warn, resolver)
                 prev.sources += block.sources
                 prev.lines += block.lines
+                prev.container_left = block.container_left
+                prev.container_width = block.container_width
                 continue
         result.append(block)
     return result

@@ -444,6 +444,33 @@ class ReferencePdfTests(unittest.TestCase):
         block = next(b for b in self.result.blocks if b.text.startswith("Advancing Your Goal."))
         self.assertNotIn("Before deciding on a goal", block.text)
 
+    def test_loyal_cadre_is_one_paragraph_across_pages_10_and_11(self):
+        block = next(b for b in self.result.blocks if b.text.startswith("Loyal Cadre."))
+        self.assertEqual(block.kind, "paragraph")
+        self.assertEqual([s.page for s in block.sources], [10, 11])
+        self.assertIn("in the earlier “Companions” section). So long as you earn their ongoing loyalty", block.text)
+        self.assertTrue(block.text.endswith("you gain an advantage on the test."))
+        self.assertNotIn("- Loyal Cadre.", self.result.markdown)
+        for text in (self.result.text, self.result.markdown):
+            self.assertIn("in the earlier “Companions” section).", text)
+
+    def test_hanging_labels_remain_lists_and_indented_labels_are_prose(self):
+        for prefix in ("Save Others.", "Deep Regret.", "Character’s Goal.", "Become a Noble."):
+            with self.subTest(prefix=prefix):
+                block = next(b for b in self.result.blocks if b.text.startswith(prefix))
+                self.assertEqual(block.kind, "list_item")
+        for prefix in ("Multiple Companions.", "Development Bonuses.", "Profile.",
+                       "Authority of the Highprince.", "Bonded Squire.", "Economic Backing.", "Bureaucratic Cleric."):
+            with self.subTest(prefix=prefix):
+                blocks = [b for b in self.result.blocks if b.text.startswith(prefix)]
+                self.assertTrue(blocks)
+                self.assertTrue(all(b.kind == "paragraph" for b in blocks))
+        self.assertEqual(sum(b.kind == "list_item" for b in self.result.blocks), 19)
+        authority = next(b for b in self.result.blocks if b.text.startswith("Authority of the Highprince."))
+        self.assertNotIn("However, when you add these advantages", authority.text)
+        following = next(b for b in self.result.blocks if b.text.startswith("However, when you add these advantages"))
+        self.assertEqual(following.kind, "paragraph")
+
     def test_tables_and_no_running_footers(self):
         tables = [b for b in self.result.blocks if b.kind == "table"]
         companion = next(b for b in tables if b.sources[0].page == 7)

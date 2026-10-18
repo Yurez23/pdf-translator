@@ -74,6 +74,7 @@ class Block:
     body_size: float = field(default=10.0, repr=False)
     container_width: float = field(default=0.0, repr=False)
     role: str = field(default="", repr=False)
+    container_left: float | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
