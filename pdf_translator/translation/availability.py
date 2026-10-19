@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..telemetry import span
 from .models import TranslationError
 
 
@@ -53,21 +54,22 @@ class AvailabilityCache:
 
     @contextmanager
     def _connection(self):
-        db = None
-        try:
-            if self.path.is_symlink():
-                raise TranslationError("SQLite-кэш не может быть символической ссылкой.")
-            db = sqlite3.connect(str(self.path), timeout=5)
-            db.execute("PRAGMA trusted_schema=OFF")
-            yield db
-            db.commit()
-        except sqlite3.Error:
-            if db is not None:
-                db.rollback()
-            raise TranslationError("SQLite-кэш повреждён, занят или недоступен. Проверьте --availability-db; прогресс перевода хранится отдельно.") from None
-        finally:
-            if db is not None:
-                db.close()
+        with span("cache.transaction"):
+            db = None
+            try:
+                if self.path.is_symlink():
+                    raise TranslationError("SQLite-кэш не может быть символической ссылкой.")
+                db = sqlite3.connect(str(self.path), timeout=5)
+                db.execute("PRAGMA trusted_schema=OFF")
+                yield db
+                db.commit()
+            except sqlite3.Error:
+                if db is not None:
+                    db.rollback()
+                raise TranslationError("SQLite-кэш повреждён, занят или недоступен. Проверьте --availability-db; прогресс перевода хранится отдельно.") from None
+            finally:
+                if db is not None:
+                    db.close()
 
     def canonical(self, namespace: str, model: str) -> str:
         with self._connection() as db:
@@ -125,6 +127,29 @@ class AvailabilityCache:
         # Release using the original name: alias discovery may happen mid-call.
         with self._connection() as db:
             db.execute("DELETE FROM leases WHERE namespace=? AND owner=?", (namespace, owner))
+
+    def admit(self, namespace, model, *, seconds, ignore_cooldown=False):
+        """Lease only recovery probes; healthy models permit concurrent requests.
+
+        Return (ready|blocked|busy, optional owner). Expired cooldown rows are
+        intentionally retained until a recovery succeeds. Schema v1 unchanged.
+        """
+        model = self.canonical(namespace, model)
+        now = self.clock()
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not ignore_cooldown:
+                if db.execute("SELECT 1 FROM cooldowns WHERE namespace=? AND model IN (?, '*') AND retry_at>?", (namespace, model, now)).fetchone():
+                    return "blocked", None
+                recovery = db.execute("SELECT 1 FROM cooldowns WHERE namespace=? AND model=?", (namespace, model)).fetchone()
+                db.execute("DELETE FROM leases WHERE expires<=?", (now,))
+                if db.execute("SELECT 1 FROM leases WHERE namespace=? AND model=?", (namespace, model)).fetchone():
+                    return "busy", None
+                if recovery:
+                    owner = uuid.uuid4().hex
+                    db.execute("INSERT INTO leases VALUES (?,?,?,?)", (namespace, model, owner, now + seconds))
+                    return "ready", owner
+            return "ready", None
 
     def reset(self, namespace: str) -> None:
         with self._connection() as db:

@@ -3,30 +3,9 @@
 import re
 from collections.abc import Mapping
 
-from .models import DocumentNode as Node, ProtectedToken, TranslationDocument, TranslationError, TranslationUnit
+from .models import DocumentNode as Node, ProtectedToken, TranslationDocument, TranslationError, TranslationUnit, TranslationWarning
 
-MARKER = re.compile(r"⟦P\d{5}:\d+⟧")
-
-
-def escape_inline(text: str) -> str:
-    return re.sub(r"([\\`*_\[\]<>|~])", r"\\\1", text)
-
-
-def restore_inline(unit: TranslationUnit, text: str, *, markdown: bool) -> str:
-    tokens = {token.marker: token for token in unit.protected}
-    parts = []
-    cursor = 0
-    for match in MARKER.finditer(text):
-        literal = text[cursor:match.start()]
-        parts.append(escape_inline(literal) if markdown else literal)
-        token = tokens.get(match[0])
-        if token is None:
-            raise TranslationError(f"Неизвестный защищённый маркер в {unit.id}.")
-        parts.append(token.markdown if markdown else token.text)
-        cursor = match.end()
-    literal = text[cursor:]
-    parts.append(escape_inline(literal) if markdown else literal)
-    return "".join(parts)
+from .inline import MARKER, escape_inline, restore_inline
 
 
 def parse_document(text: str, *, markdown: bool) -> TranslationDocument:
@@ -35,7 +14,7 @@ def parse_document(text: str, *, markdown: bool) -> TranslationDocument:
     if not text.strip() or "\x00" in text:
         raise TranslationError("Нужен непустой текстовый файл UTF-8 без нулевых символов.")
     units: list[TranslationUnit] = []
-    warnings: list[str] = []
+    warnings: list[TranslationWarning] = []
     headings: dict[int, str] = {}
 
     def add(content, kind: str, *, literal: bool = False) -> str:
@@ -83,10 +62,10 @@ def parse_document(text: str, *, markdown: bool) -> TranslationDocument:
                     href = (token.attrGet("src") or "").replace("(", "%28").replace(")", "%29").replace(" ", "%20")
                     alt = token.content
                     fragments.append(protect("![" + escape_inline(alt) + "](" + href + ")", alt))
-                    warnings.append(f"{identifier}: изображение и его alt-текст сохранены без перевода.")
+                    warnings.append(TranslationWarning("literal_preserved", f"{identifier}: изображение и его alt-текст сохранены без перевода.", identifier))
                 elif token.type == "html_inline":
                     fragments.append(protect(escape_inline(token.content), token.content))
-                    warnings.append(f"{identifier}: встроенный HTML сохранён как буквальный текст.")
+                    warnings.append(TranslationWarning("literal_preserved", f"{identifier}: встроенный HTML сохранён как буквальный текст.", identifier))
                 else:
                     raise TranslationError(f"Неподдержанный inline-элемент Markdown: {token.type}.")
             payload = "".join(fragments)
@@ -112,7 +91,7 @@ def parse_document(text: str, *, markdown: bool) -> TranslationDocument:
                     nodes.append(Node("literal_list", children=[item], marker=match[1]))
                 else:
                     nodes.append(Node("paragraph", unit_id=add(value, "paragraph", literal=True)))
-        warnings.append("TXT: уровни заголовков и границы вставок отсутствуют в исходном формате и не восстанавливаются.")
+        warnings.append(TranslationWarning("txt_structure", "TXT: уровни заголовков и границы вставок отсутствуют в исходном формате и не восстанавливаются."))
         return TranslationDocument(tuple(nodes), tuple(units), tuple(dict.fromkeys(warnings)))
 
     try:
@@ -166,7 +145,7 @@ def parse_document(text: str, *, markdown: bool) -> TranslationDocument:
                 result.append(Node("table", rows=rows))
             elif token.type in ("fence", "code_block", "html_block"):
                 result.append(Node("verbatim", text=token.content, marker=token.info if token.type == "fence" else ""))
-                warnings.append(f"Блок {token.type} сохранён без перевода.")
+                warnings.append(TranslationWarning("literal_preserved", f"Блок {token.type} сохранён без перевода."))
             elif token.type == "hr":
                 result.append(Node("rule"))
             else:

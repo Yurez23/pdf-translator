@@ -3,11 +3,13 @@
 import argparse
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 from .converter import convert_pdf
+from .file_outputs import write_utf8_outputs
 from .models import ConversionError, HyphenationIssue
+from .logging_setup import add_logging_arguments, run_cli
+from .telemetry import instrument, emit
 
 
 def _read_choice() -> str:
@@ -57,38 +59,14 @@ def _prompt_hyphen(issue: HyphenationIssue) -> bool:
         print("Нажмите 1, 2 или Q.", file=sys.stderr)
 
 
+@instrument("storage.export")
 def _write_outputs(outputs: dict[Path, str], overwrite: bool) -> None:
     # Check the whole set first: an existing TXT must not leave a new MD behind.
     if not overwrite:
         for target in outputs:
             if target.exists() or target.is_symlink():
                 raise ConversionError(f"Файл уже существует: {target}. Для перезаписи укажите --overwrite.")
-    staged: list[tuple[Path, Path]] = []
-    created: list[Path] = []
-    try:
-        for target, content in outputs.items():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n", dir=target.parent, prefix=".pdf-translator-", suffix=".tmp", delete=False) as stream:
-                stage = Path(stream.name)
-                staged.append((stage, target))
-                stream.write(content)
-        for stage, target in staged:
-            if overwrite:
-                os.replace(stage, target)
-            else:
-                # Exclusive creation prevents overwriting even if another process
-                # creates the destination after the initial existence check.
-                with target.open("x", encoding="utf-8", newline="\n") as stream:
-                    created.append(target)
-                    stream.write(stage.read_text(encoding="utf-8"))
-    except OSError:
-        if not overwrite:
-            for target in created:
-                target.unlink(missing_ok=True)
-        raise
-    finally:
-        for stage, _ in staged:
-            stage.unlink(missing_ok=True)
+    write_utf8_outputs(outputs, overwrite=overwrite, prefix=".pdf-translator-", create_parents=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -103,7 +81,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--overwrite", action="store_true", help="разрешить замену существующих результатов")
     parser.add_argument("--hyphens", choices=("ask", "keep", "join"), default="ask", help="неоднозначные переносы: спросить (по умолчанию), сохранить дефисы или убрать их")
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    add_logging_arguments(parser)
     args = parser.parse_args(argv)
+    return run_cli(args, lambda: _execute(args), command="conversion")
+
+
+def _execute(args) -> int:
     try:
         targets = [args.output_dir / (args.input.stem + suffix) for suffix in (".md", ".txt")]
         if any(target.resolve() == args.input.resolve() for target in targets):
@@ -118,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
             numbers = ", ".join(map(str, warning.pages))
             print(f"Предупреждение [{warning.code}], стр. {numbers}: {warning.message}", file=sys.stderr)
         _write_outputs(dict(zip(targets, (result.markdown, result.text))), args.overwrite)
+        emit("conversion.exported", characters=len(result.text), warnings=len(result.warnings))
         for target in targets:
             print(f"Сохранено: {target.resolve()}")
         return 0

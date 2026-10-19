@@ -24,6 +24,7 @@ class DictionaryProvider:
 
     def prepare(self, options):
         self.prepared.append(options)
+        return self
 
     def translate(self, request, *, executor):
         if len(request.items) > self.batch_limit:
@@ -102,8 +103,13 @@ class TranslationPortTests(LocalCase):
             self.out = self.root / f"bad-{index}"
             provider = DictionaryProvider()
             provider.translate = lambda request, *, executor: response
-            with self.subTest(response=response), self.assertRaises(TranslationError):
-                self.run_dictionary(provider)
+            with self.subTest(response=response):
+                if isinstance(response, dict):
+                    result = self.run_dictionary(provider)
+                    self.assertEqual((result.status, result.completed_segments), ("incomplete", 0))
+                else:
+                    with self.assertRaises(TranslationError):
+                        self.run_dictionary(provider)
             self.assertEqual(load_checkpoint(next(self.out.glob("*.json")))["translations"], {})
 
     def test_single_item_too_large_keeps_checkpoint_and_never_exports(self):
@@ -140,7 +146,7 @@ builtins.__import__ = guarded
 from pdf_translator.translation import ProviderIdentity, TranslationOptions, translate_file
 class Provider:
     identity = ProviderIdentity('offline', 'v1')
-    def prepare(self, options): pass
+    def prepare(self, options): return self
     def translate(self, request, *, executor):
         return {item.id: 'Перевод: ' + item.text for item in request.items}
 result = translate_file(sys.argv[1], output_dir=sys.argv[2],

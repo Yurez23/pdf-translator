@@ -222,6 +222,7 @@ __marimo__/
 # Local conversion results and visual QA renders
 /output/
 /tmp/
+/logs/
 
 # Shared local model availability cache (never documents or API credentials)
 /model-availability.sqlite3

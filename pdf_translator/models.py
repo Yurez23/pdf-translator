@@ -4,11 +4,13 @@ from dataclasses import dataclass, field
 from collections.abc import Callable
 from typing import Literal
 
+from .diagnostics import DiagnosticError
+
 type BBox = tuple[float, float, float, float]
 type BlockKind = Literal["paragraph", "heading", "list_item", "table", "aside", "footnote", "raw"]
 
 
-class ConversionError(ValueError):
+class ConversionError(DiagnosticError):
     """An expected input or conversion failure suitable for display to a user."""
 
 

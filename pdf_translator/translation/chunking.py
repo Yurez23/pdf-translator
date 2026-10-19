@@ -5,8 +5,8 @@ from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass
 
-from .document import MARKER
-from .models import TranslationDocument, TranslationError, TranslationSegment
+from .inline import MARKER
+from .models import TranslationDocument, TranslationError, TranslationSegment, TranslationWarning
 
 POLICY_VERSION = "sections-paragraphs-sentences-v1"
 
@@ -225,8 +225,9 @@ def chunk_document(document: TranslationDocument, limit: int):
     for (start, end), kind in layout.container_labels:
         index = bisect_right(cuts, start)
         if index < len(cuts) and cuts[index] < end:
-            warnings.append(f"{atoms[start].unit_id}: контейнер {kind} разделён между пакетами "
-                            "по внутренним границам из-за max_chunk_chars; при экспорте он восстановится.")
+            warnings.append(TranslationWarning("container_split",
+                            f"{atoms[start].unit_id}: контейнер {kind} разделён между пакетами "
+                            "по внутренним границам из-за max_chunk_chars; при экспорте он восстановится.", atoms[start].unit_id))
     return tuple(segments), tuple(batches), tuple(warnings)
 
 

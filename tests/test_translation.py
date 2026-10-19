@@ -11,14 +11,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pdf_translator.translation import TranslationError, TranslationOptions, plan_translation, translate_file
+from pdf_translator.translation import translate_file_async
 from pdf_translator.translation.cli import main
 from pdf_translator.translation.document import MARKER, parse_document, render_document
 from pdf_translator.translation.models import ModelLimits, ProviderError, TranslationSegment
-from pdf_translator.translation.planning import make_request, normalize_glossary, validate_translations, validate_text
+from pdf_translator.translation.planning import make_request, normalize_glossary
+from pdf_translator.translation.validation import validate_translations, validate_text
 from pdf_translator.translation.gemini import GeminiProvider
 from pdf_translator.translation.gemini_format import decode_response, make_prompt
 from pdf_translator.translation.ports import ProviderIdentity
-from pdf_translator.translation.runner import RequestController
+from tests.support import controller_for, allow_asyncio_self_pipe
 from pdf_translator.translation.storage import checkpoint_lock, load_checkpoint, save_checkpoint
 
 try:
@@ -30,10 +32,10 @@ OPTIONS = TranslationOptions(model="gemini-test", requests_per_minute=1000, toke
                              max_requests=100, max_retries=0)
 
 
-class FakeProvider(GeminiProvider):
-    """Offline Gemini adapter double; independent non-LLM adapters tested below."""
-    def __init__(self):
-        super().__init__()
+class FakeProvider:
+    """Scripted independent provider: synthetic calls exercise budgets without an SDK."""
+    identity = ProviderIdentity("fixture", "v1")
+    def __init__(self, *, response_contract="strict"):
         self.generated = []
         self.prompts = []
         self.counted = 0
@@ -43,15 +45,56 @@ class FakeProvider(GeminiProvider):
 
     def prepare(self, options):
         self.options = options
-        self._client = object()
         self._limits = None
+        return self
+
+    def translate(self, request, *, executor):
+        if self._limits is None:
+            self._limits = executor.call(self.model_limits, label="synthetic metadata")
+        if self.options.max_output_tokens > self._limits.output_tokens:
+            raise TranslationError("Output limit")
+        prompt = "INPUT DATA:\n" + json.dumps({"segments": [{"id": x.id, "text": x.text} for x in request.items]})
+        count = executor.call(lambda: self.count_tokens(prompt), label="synthetic count")
+        if count + 512 > min(self.options.max_input_tokens, self._limits.input_tokens):
+            from pdf_translator.translation import BatchTooLarge
+            raise BatchTooLarge("Synthetic input limit")
+        raw = executor.call(lambda: self.generate(prompt, self.options.max_output_tokens),
+                            tokens=count + 512 + self.options.max_output_tokens, label="synthetic generation")
+        return {x["id"]: x["text"] for x in json.loads(raw)["translations"]}
 
     def close(self):
         pass
 
+    async def aclose(self):
+        self.close()
+
+    def prepare_async(self, options):
+        from types import SimpleNamespace
+        self.options = options
+        def new_session():
+            limits = None
+            async def translate(request, *, executor):
+                nonlocal limits
+                async def local(operation):
+                    return operation()
+                if limits is None:
+                    limits = await executor.call(lambda: local(self.model_limits), label="synthetic metadata")
+                if options.max_output_tokens > limits.output_tokens:
+                    raise TranslationError("Output limit")
+                prompt = "INPUT DATA:\n" + json.dumps({"segments": [{"id": x.id, "text": x.text} for x in request.items]})
+                count = await executor.call(lambda: local(lambda: self.count_tokens(prompt)), label="synthetic count")
+                if count + 512 > min(options.max_input_tokens, limits.input_tokens):
+                    from pdf_translator.translation import BatchTooLarge
+                    raise BatchTooLarge("Synthetic input limit")
+                raw = await executor.call(lambda: local(lambda: self.generate(prompt, options.max_output_tokens)),
+                                          tokens=count + 512 + options.max_output_tokens, label="synthetic generation")
+                return {x["id"]: x["text"] for x in json.loads(raw)["translations"]}
+            return SimpleNamespace(translate=translate)
+        return SimpleNamespace(new_session=new_session)
+
     def model_limits(self):
         self.limits_called += 1
-        return ModelLimits(100000, 32000)
+        return ModelLimits(100000, 65536)
 
     def count_tokens(self, prompt):
         self.counted += 1
@@ -73,7 +116,7 @@ plan_translation = partial(plan_translation, provider=FakeProvider().identity)
 
 
 def validate_response(raw, batch):
-    return validate_translations(decode_response(raw), batch)
+    return validate_translations(decode_response(raw, "legacy"), batch)
 
 
 class LocalCase(unittest.TestCase):
@@ -84,6 +127,10 @@ class LocalCase(unittest.TestCase):
         self.source = self.root / "book.txt"
         self.source.write_text("An ordinary paragraph.\n\nAnother paragraph with 20 points.", encoding="utf-8")
         self.out = self.root / "translated"
+        log_directory = patch("pdf_translator.logging_setup.default_log_directory", return_value=self.root / "logs")
+        log_directory.start()
+        self.addCleanup(log_directory.stop)
+        self.enterContext(allow_asyncio_self_pipe())
         # A failing network attempt is always a test failure, never a live call.
         for target in ("socket.create_connection", "socket.getaddrinfo", "socket.socket.connect"):
             guard = patch(target, side_effect=AssertionError("Network forbidden in tests"))
@@ -292,6 +339,17 @@ class TranslationValidationTests(unittest.TestCase):
 
 
 class TranslationRunnerTests(LocalCase):
+    def test_old_output_budget_requires_explicit_setting_for_resume(self):
+        old_options = replace(OPTIONS, max_output_tokens=16384)
+        first = self.run_translation(options=old_options)
+        checkpoint = Path(first.checkpoint)
+        before = checkpoint.read_bytes()
+        with self.assertRaises(TranslationError):
+            self.run_translation(options=OPTIONS, resume=True, overwrite=True)
+        self.assertEqual(checkpoint.read_bytes(), before)
+        resumed = self.run_translation(options=old_options, resume=True, overwrite=True)
+        self.assertEqual((resumed.status, resumed.requests_made), ("complete", 0))
+
     def test_api_requires_explicit_network_opt_in(self):
         with self.assertRaises(TranslationError):
             translate_file(self.source, output_dir=self.out, options=OPTIONS, provider=FakeProvider())
@@ -364,8 +422,8 @@ class TranslationRunnerTests(LocalCase):
     def test_invalid_response_does_not_poison_cache(self):
         provider = FakeProvider()
         provider.response = '{"translations": []}'
-        with self.assertRaises(TranslationError):
-            self.run_translation(provider=provider)
+        result = self.run_translation(provider=provider)
+        self.assertEqual((result.status, len(result.failed_batches)), ("incomplete", 1))
         state = load_checkpoint(next(self.out.glob("*.json")))
         self.assertEqual(state["translations"], {})
         self.assertFalse(list(self.out.glob("*.txt")))
@@ -457,6 +515,21 @@ class TranslationRunnerTests(LocalCase):
 
 
 class TranslationCliTests(LocalCase):
+    def test_output_budget_defaults_match_api_and_explicit_overrides_survive(self):
+        with patch("pdf_translator.translation.cli.GeminiProvider", side_effect=FakeProvider), \
+                patch("pdf_translator.translation.cli.translate_file_async", wraps=translate_file_async) as run:
+            code, _, errors = self.cli("--send")
+            self.assertEqual(code, 0, errors)
+            options = run.call_args.kwargs["options"]
+            defaults = TranslationOptions(model="gemini-test")
+            self.assertEqual((options.max_output_tokens, options.tokens_per_minute), (32768, 50000))
+            self.assertEqual((defaults.max_output_tokens, defaults.tokens_per_minute), (32768, 50000))
+            code, _, errors = self.cli("--send", "--max-output-tokens", "16384", "--tokens-per-minute", "30000",
+                                       "--output-dir", str(self.root / "explicit"))
+            self.assertEqual(code, 0, errors)
+            options = run.call_args.kwargs["options"]
+            self.assertEqual((options.max_output_tokens, options.tokens_per_minute), (16384, 30000))
+
     def test_default_dry_plan_needs_no_key_and_creates_nothing(self):
         with patch.dict("os.environ", {}, clear=True):
             code, output, _ = self.cli()
@@ -478,7 +551,7 @@ class TranslationCliTests(LocalCase):
         self.assertEqual(code, 1)
 
     def test_cancellation_and_wrong_arguments(self):
-        with patch("pdf_translator.translation.cli.translate_file", side_effect=KeyboardInterrupt):
+        with patch("pdf_translator.translation.cli.translate_file_async", side_effect=KeyboardInterrupt):
             code, _, _ = self.cli("--send")
         self.assertEqual(code, 130)
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
@@ -503,7 +576,7 @@ class RequestControllerTests(LocalCase):
         def sleep(value):
             sleeps.append(value)
             now[0] += value
-        controller = RequestController(replace(OPTIONS, requests_per_minute=1, max_retries=1), state, checkpoint,
+        controller = controller_for(replace(OPTIONS, requests_per_minute=1, max_retries=1), state, checkpoint,
                                        lambda _: None, clock=lambda: now[0], sleep=sleep)
         self.assertEqual(controller.call(lambda: 1, tokens=200, label="first"), 1)
         self.assertEqual(controller.call(lambda: 2, tokens=200, label="second"), 2)
@@ -520,7 +593,7 @@ class RequestControllerTests(LocalCase):
 
     def test_hard_request_budget_and_tpm_failure(self):
         state = {"recent_requests": [], "calls_total": 0}
-        controller = RequestController(replace(OPTIONS, max_requests=1), state, self.root / "state.json", lambda _: None)
+        controller = controller_for(replace(OPTIONS, max_requests=1), state, self.root / "state.json", lambda _: None)
         controller.call(lambda: None, label="one")
         with self.assertRaises(TranslationError):
             controller.call(lambda: self.fail("Over budget"), label="two")

@@ -70,3 +70,7 @@ def join_lines(
         if not result.endswith("\u00ad"):
             result = result.replace("\u00ad", "")
     return result.replace("\u00ad", "")
+
+
+def terminal(text: str) -> bool:
+    return bool(re.search(r"[.!?…:][\"'’”\])]*$", text.strip()))

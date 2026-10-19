@@ -41,6 +41,13 @@
   translation. Use offline mocks unless the user explicitly requests a live
   translation/test. Never print, commit, or include API keys in reports or HTML.
 - Do not commit or push unless the user explicitly requests it.
+- Response-validation recovery retries the whole unchanged batch on the same
+  model; never split it or concatenate partial answers to repair an invalid
+  response. Exhausted response retries isolate that batch and produce an
+  incomplete result; other independent batches may continue. MAX_TOKENS is not
+  a response-retry or fallback signal. Keep the pre-existing input-token guard
+  separate from this policy. Strict and explicit legacy Gemini contracts have
+  distinct identities; never silently migrate or discard an old journal.
 
 ## Documentation maintenance before commits
 

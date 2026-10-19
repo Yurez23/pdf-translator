@@ -28,14 +28,42 @@ from pdf_translator import (
 пакет `pdf_translator.translation` экспортирует `plan_translation`, `translate_file`,
 `TranslationOptions`, `TranslationPlan`, `TranslationResult`, `TranslationError`,
 `ProviderIdentity`, `TranslationProvider`, `TranslationRequest`, `TranslationItem`,
-`RequestExecutor`, `BatchTooLarge`, `TranslationResponse`. Адаптер передаётся явно по DIP; у локального
+`RequestExecutor`, `BatchTooLarge`, `TranslationResponse`, `TranslationSession`,
+`TranslationWarning`, а также `translate_file_async`, `AsyncTranslationProvider`,
+`AsyncSessionFactory`, `AsyncTranslationSession`, `AsyncRequestExecutor`,
+`ResponseValidationError`, `BatchFailure`.
+Синхронный `translate_file` сохранён, CLI использует async API с
+`max_concurrency=5` (1–5), общими ограничителями и отдельными сессиями работников.
+Конкурентность не входит в fingerprint и может меняться при resume.
+`max_response_retries=1` (0–5) задаёт повторы целого некорректного ответа, отдельно
+от сетевого `max_retries=2`. Результат может иметь `status="incomplete"` и
+`failed_batches`: другие пакеты продолжаются, полного MD/TXT нет. Записи
+`BatchFailure` содержат batch_id, segment_ids, code, attempts, model.
+Ошибки содержимого классифицируются `ResponseValidationError`, программный
+неверный контракт адаптера остаётся фатальной `TranslationError`.
+`TranslationRequest.response_issue` — дополнительная безопасная категория
+для повторного запроса. Gemini strict/legacy выбирается в адаптере, не ядре.
+Адаптер передаётся явно по DIP; у локального
 плана требуется его identity. Контракты, файловые операции и разрешение сети описаны в
 [руководстве по переводу](translation.md); корневой API из восьми имён не изменён.
 В `TranslationOptions` жёсткий `max_chunk_chars=16000` (можно уменьшить до 256),
-`max_output_tokens=16384`. План выбирает смысловые границы подразделов/абзацев/
+`max_output_tokens=32768`, локальный `tokens_per_minute=50000` для резерва входа
+и максимального ответа. План выбирает смысловые границы подразделов/абзацев/
 предложений; версия контракта планирования 3 включает политику и границы пакетов.
 
+`GeminiAutoProvider` переключает модель при модельных квотах, HTTP 404 и
+сохраняющихся после штатных повторов HTTP 503/504. Для последних SQLite-кэш
+недоступности действует 5 минут либо дольше по Retry-After; если кандидаты
+закончились, результат имеет `status="paused"`, а не частичный готовый экспорт.
+Ручной `GeminiProvider` не меняет выбранную модель. Полная
+[политика ошибок и кэша](translation.md#автовыбор-fallback-и-sqlite).
+
 ## `convert_pdf`
+
+Библиотека не настраивает логгеры и не создаёт технических файлов автоматически.
+Явный `telemetry.log_run(EventSink)` подключает события ко всем этапам; владение
+конкретным sink остаётся у вызывающего кода. Это не меняет сигнатуры, результаты,
+разрешение сети или fingerprint перевода. Пример — в [логировании](logging.md#подключение-из-python).
 
 ```python
 def convert_pdf(
@@ -263,3 +291,8 @@ result = convert_pdf("book.pdf", hyphen_resolver=keep_and_record)
 Служебный `export.render(blocks)` возвращает пару строк, но не является публичной
 функцией пакета для редактирования результата. Если в будущем потребуется
 поддерживаемый API повторного экспорта, его контракт нужно определить отдельно.
+
+Согласованные изменения необязательного API перевода: `prepare` возвращает
+сессию, предупреждения содержат код/сообщение/ID. [Инструкция перехода](solid.md#изменения-python-api).
+`ConversionError` по-прежнему является `ValueError`, через общий диагностический
+базовый класс; восемь экспортов локального API не менялись.

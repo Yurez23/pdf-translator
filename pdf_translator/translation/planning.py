@@ -1,40 +1,17 @@
 """Provider-independent offline planning, requests and domain validation."""
 
-import hashlib
 import json
-import re
-from collections import Counter
 from collections.abc import Mapping
 from dataclasses import asdict, replace
 from pathlib import Path
 
+from ..telemetry import emit, instrument, span, translation_warning
 from .chunking import POLICY_VERSION, chunk_document
-from .document import MARKER, parse_document
-from .models import TranslationError, TranslationOptions, TranslationPlan, TranslationSegment
+from .document import parse_document
+from .inline import MARKER
+from .models import TranslationError, TranslationOptions, TranslationPlan, TranslationSegment, TranslationWarning
 from .ports import ProviderIdentity, TranslationItem, TranslationRequest
-
-
-def strict_json(raw: str) -> object:
-    def unique(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError("Duplicate JSON key")
-            result[key] = value
-        return result
-
-    def reject_constant(_):
-        raise ValueError("Non-finite JSON number")
-
-    return json.loads(raw, object_pairs_hook=unique, parse_constant=reject_constant)
-
-
-def digest(value: bytes | str | dict | list) -> str:
-    if not isinstance(value, (str, bytes)):
-        value = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    if isinstance(value, str):
-        value = value.encode("utf-8")
-    return hashlib.sha256(value).hexdigest()
+from .serialization import digest
 
 
 def normalize_glossary(glossary: Mapping[str, str] | None) -> dict[str, str]:
@@ -57,6 +34,7 @@ def normalize_glossary(glossary: Mapping[str, str] | None) -> dict[str, str]:
     return dict(sorted(result.items()))
 
 
+@instrument("translation.plan")
 def plan_translation(input_path: str | Path, options: TranslationOptions, *,
                      provider: ProviderIdentity,
                      glossary: Mapping[str, str] | None = None, limit_units: int | None = None) -> TranslationPlan:
@@ -75,7 +53,8 @@ def plan_translation(input_path: str | Path, options: TranslationOptions, *,
     if limit_units is not None and (type(limit_units) is not int or limit_units < 1):
         raise TranslationError("limit_units должен быть положительным целым числом.")
     glossary = normalize_glossary(glossary)
-    document = parse_document(text, markdown=source.suffix.lower() == ".md")
+    with span("translation.parse"):
+        document = parse_document(text, markdown=source.suffix.lower() == ".md")
     # A preview selects whole top-level nodes, never half a table/sidebar/list.
     if limit_units is not None:
         from .models import TranslationDocument
@@ -95,12 +74,13 @@ def plan_translation(input_path: str | Path, options: TranslationOptions, *,
             selected.append(node)
             ids.update(owned(node))
         document = TranslationDocument(tuple(selected), tuple(unit for unit in document.units if unit.id in ids),
-                                       document.warnings + ("Выбрана начальная проба документа; целиком сохранены её таблицы и контейнеры.",))
-    segments, batches, warnings = chunk_document(document, options.max_chunk_chars)
+                                       document.warnings + (TranslationWarning("preview", "Выбрана начальная проба документа; целиком сохранены её таблицы и контейнеры."),))
+    with span("translation.chunk"):
+        segments, batches, warnings = chunk_document(document, options.max_chunk_chars)
     if warnings:
         document = replace(document, warnings=document.warnings + warnings)
     semantic_options = asdict(options)
-    for key in ("max_requests", "max_retries", "requests_per_minute", "tokens_per_minute", "timeout_seconds"):
+    for key in ("max_requests", "max_retries", "requests_per_minute", "tokens_per_minute", "timeout_seconds", "max_concurrency", "max_response_retries"):
         semantic_options.pop(key)
     manifest = {
         "source_sha256": digest(raw), "format": source.suffix.lower(), "options": semantic_options,
@@ -109,6 +89,9 @@ def plan_translation(input_path: str | Path, options: TranslationOptions, *,
         "plan_sha256": digest({"segments": [asdict(segment) for segment in segments],
                                "batches": [[segment.id for segment in batch] for batch in batches]}),
     }
+    emit("translation.plan_stats", source_bytes=len(raw), units=len(document.units), segments=len(segments), batches=len(batches))
+    for warning in document.warnings:
+        translation_warning(warning)
     return TranslationPlan(document, tuple(segments), tuple(batches), manifest, digest(manifest), glossary)
 
 
@@ -130,34 +113,3 @@ def make_request(plan: TranslationPlan, batch: tuple[TranslationSegment, ...], o
         options.source_language, options.target_language, dict(plan.glossary),
         "\n".join(contexts)[:options.context_chars],
     )
-
-
-def validate_text(source: str, translated: str, identifier: str) -> tuple[str, list[str]]:
-    if not isinstance(translated, str) or not translated.strip() or "\x00" in translated:
-        raise TranslationError(f"Пустой или некорректный перевод сегмента {identifier}.")
-    translated = re.sub(r"\s+", " ", translated).strip()
-    if MARKER.findall(source) != MARKER.findall(translated):
-        raise TranslationError(f"Нарушены защищённые маркеры в {identifier}; ответ не сохранён.")
-    original = MARKER.sub("", source).strip()
-    visible = MARKER.sub("", translated).strip()
-    if len(original) >= 100 and not 0.2 <= len(visible) / len(original) <= 6:
-        raise TranslationError(f"Подозрительная длина перевода {identifier}; проверьте обрезку или пересказ.")
-    warnings = []
-    if Counter(re.findall(r"\d+", original)) != Counter(re.findall(r"\d+", visible)):
-        warnings.append(f"{identifier}: изменился набор чисел; требуется сверка с оригиналом.")
-    if len(original) >= 40 and visible == original:
-        warnings.append(f"{identifier}: текст не изменился; проверьте, выполнен ли перевод.")
-    return translated, warnings
-
-
-def validate_translations(value: Mapping[str, str], batch: tuple[TranslationSegment, ...]) -> tuple[dict[str, str], list[str]]:
-    if not isinstance(value, Mapping):
-        raise TranslationError("Адаптер должен вернуть отображение ID → перевод.")
-    expected = {segment.id: segment for segment in batch}
-    if set(value) != set(expected):
-        raise TranslationError("В ответе адаптера отсутствуют сегменты или есть лишние ID; пакет не сохранён.")
-    output, warnings = {}, []
-    for identifier, segment in expected.items():
-        output[identifier], checks = validate_text(segment.text, value[identifier], identifier)
-        warnings.extend(checks)
-    return output, warnings

@@ -20,7 +20,7 @@ from reportlab.platypus import Table, TableStyle
 
 from pdf_translator import Block, ConversionError, ConversionResult, SourceRegion, convert_pdf
 from pdf_translator.cli import _read_choice, main
-from pdf_translator.converter import parse_pages
+from pdf_translator.page_selection import parse_pages
 from pdf_translator.export import render
 from pdf_translator.text import join_lines, normalize
 
@@ -322,6 +322,9 @@ class CliTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name)
+        log_directory = patch("pdf_translator.logging_setup.default_log_directory", return_value=self.directory / "logs")
+        log_directory.start()
+        self.addCleanup(log_directory.stop)
 
     def run_cli(self, *args):
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -383,7 +386,7 @@ class CliTests(unittest.TestCase):
     def test_real_subprocess_accepts_piped_choice(self):
         source = self.hyphen_pdf()
         out = self.directory / "process"
-        result = subprocess.run([sys.executable, "-m", "pdf_translator", str(source), "--output-dir", str(out)],
+        result = subprocess.run([sys.executable, "-m", "pdf_translator", str(source), "--output-dir", str(out), "--log-dir", str(self.directory / "logs")],
                                 input="1\n", capture_output=True, encoding="utf-8", cwd=ROOT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("fortress", (out / "hyphens.txt").read_text(encoding="utf-8"))

@@ -1,7 +1,7 @@
 """Domain-facing translation ports; no SDK, prompt, JSON or token-count API."""
 
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -40,6 +40,7 @@ class TranslationRequest:
     target_language: str
     glossary: Mapping[str, str]
     context: str
+    response_issue: str = ""
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,8 @@ class TranslationResponse:
 class BatchTooLarge(TranslationError):
     """The adapter cannot accept this batch; the core may split it and retry."""
 
+    diagnostic_code = "batch_too_large"
+
 
 class RequestExecutor(Protocol):
     """Route EVERY external attempt through the shared budget/retry controller.
@@ -66,13 +69,8 @@ class RequestExecutor(Protocol):
     def call[T](self, operation: Callable[[], T], *, tokens: int = 0, label: str) -> T: ...
 
 
-class TranslationProvider(Protocol):
-    @property
-    def identity(self) -> ProviderIdentity: ...
-
-    def prepare(self, options: TranslationOptions) -> None:
-        """Check local settings/dependencies/credentials; MUST NOT use the network."""
-        ...
+class TranslationSession(Protocol):
+    """A translator bound to one run's settings; no lifecycle or SDK methods."""
 
     def translate(self, request: TranslationRequest, *, executor: RequestExecutor) -> Mapping[str, str] | TranslationResponse:
         """Return exactly one translated string per item ID, preserving markers.
@@ -81,4 +79,43 @@ class TranslationProvider(Protocol):
         translation if a batch exceeds provider limits. Resource lifecycle belongs
         to the caller/composition root, never to the conversion/translation core.
         """
+        ...
+
+
+class TranslationProvider(Protocol):
+    @property
+    def identity(self) -> ProviderIdentity: ...
+
+    def prepare(self, options: TranslationOptions) -> TranslationSession:
+        """Return a bound session using local setup only; MUST NOT use the network.
+
+        A stateless implementation may return itself. The caller owns resources;
+        the core does not require close() or silently adapt the old None return.
+        """
+        ...
+
+
+class AsyncRequestExecutor(Protocol):
+    async def call[T](self, operation: Callable[[], Awaitable[T]], *, tokens: int = 0, label: str,
+                      before_attempt: Callable[[], None] | None = None) -> T:
+        """Optional local-only admission guard, checked before durable reservation."""
+        ...
+
+
+class AsyncTranslationSession(Protocol):
+    async def translate(self, request: TranslationRequest, *, executor: AsyncRequestExecutor) -> Mapping[str, str] | TranslationResponse: ...
+
+
+class AsyncSessionFactory(Protocol):
+    def new_session(self) -> AsyncTranslationSession:
+        """Local-only setup; each worker receives its own mutable session."""
+        ...
+
+
+class AsyncTranslationProvider(Protocol):
+    @property
+    def identity(self) -> ProviderIdentity: ...
+
+    def prepare_async(self, options: TranslationOptions) -> AsyncSessionFactory:
+        """Local-only run factory; caller owns resource cleanup, not the core."""
         ...

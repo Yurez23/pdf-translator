@@ -6,8 +6,26 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+from ..telemetry import emit, instrument
+from ..file_outputs import write_utf8_outputs
 from .models import TranslationError
-from .planning import strict_json
+from .serialization import strict_json
+
+
+class JsonCheckpointStore:
+    """Filesystem adapter for the checkpoint port; no run policy or model selection."""
+
+    def __init__(self, path: Path):
+        self.path = path
+
+    def lock(self):
+        return checkpoint_lock(self.path)
+
+    def load(self):
+        return load_checkpoint(self.path)
+
+    def save(self, value):
+        save_checkpoint(self.path, value)
 
 
 @contextmanager
@@ -16,6 +34,7 @@ def checkpoint_lock(checkpoint: Path):
     lock = checkpoint.with_suffix(checkpoint.suffix + ".lock")
     try:
         descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        emit("storage.lock_acquired")
     except FileExistsError:
         raise TranslationError("Журнал перевода заблокирован другим запуском. Если процесс завершился аварийно, проверьте и удалите его .lock вручную.") from None
     try:
@@ -24,8 +43,10 @@ def checkpoint_lock(checkpoint: Path):
         yield
     finally:
         lock.unlink(missing_ok=True)
+        emit("storage.lock_released")
 
 
+@instrument("storage.checkpoint_write")
 def save_checkpoint(path: Path, state: dict) -> None:
     stage = None
     try:
@@ -42,6 +63,7 @@ def save_checkpoint(path: Path, state: dict) -> None:
             stage.unlink(missing_ok=True)
 
 
+@instrument("storage.checkpoint_read")
 def load_checkpoint(path: Path) -> dict:
     try:
         if path.is_symlink() or path.stat().st_size > 64 * 1024 * 1024:
@@ -67,30 +89,9 @@ def check_output_paths(paths: list[Path], input_path: Path, *, overwrite: bool) 
             raise TranslationError(f"Результат уже существует или является ссылкой: {target}. Выберите другую папку или --overwrite.")
 
 
+@instrument("storage.export")
 def write_outputs(outputs: dict[Path, str], *, overwrite: bool) -> None:
-    staged = []
-    created = []
-    try:
-        for target, content in outputs.items():
-            descriptor, name = tempfile.mkstemp(prefix=".translation-", suffix=".tmp", dir=target.parent)
-            stage = Path(name)
-            staged.append((stage, target))
-            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
-                stream.write(content)
-        for stage, target in staged:
-            if target.is_symlink():
-                raise TranslationError("Отказ от записи перевода через символическую ссылку.")
-            if overwrite:
-                os.replace(stage, target)
-            else:
-                with target.open("x", encoding="utf-8", newline="\n") as stream:
-                    created.append(target)
-                    stream.write(stage.read_text(encoding="utf-8"))
-    except (OSError, TranslationError):
-        if not overwrite:
-            for target in created:
-                target.unlink(missing_ok=True)
-        raise
-    finally:
-        for stage, _ in staged:
-            stage.unlink(missing_ok=True)
+    def refuse_link(target):
+        if target.is_symlink():
+            raise TranslationError("Отказ от записи перевода через символическую ссылку.")
+    write_utf8_outputs(outputs, overwrite=overwrite, prefix=".translation-", before_publish=refuse_link)

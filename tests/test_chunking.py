@@ -69,7 +69,9 @@ class ChunkingCase(unittest.TestCase):
 class TextChunkingTests(ChunkingCase):
     def test_default_and_maximum_are_exactly_16000(self):
         self.assertEqual(TranslationOptions(model="offline").max_chunk_chars, 16000)
-        self.assertEqual(TranslationOptions(model="offline").max_output_tokens, 16384)
+        self.assertEqual(TranslationOptions(model="offline").max_output_tokens, 32768)
+        self.assertEqual(TranslationOptions(model="offline").tokens_per_minute, 50000)
+        self.assertLessEqual(12000 + 32768, TranslationOptions(model="offline").tokens_per_minute)
         for invalid in (16001, 20000, 255, True):
             with self.subTest(value=invalid), self.assertRaises(TranslationError):
                 TranslationOptions(model="offline", max_chunk_chars=invalid)
@@ -106,7 +108,7 @@ class TextChunkingTests(ChunkingCase):
         paragraphs = [sentence(90), "# This is literal text", sentence(90), sentence(90)]
         plan = self.plan("\n\n".join(paragraphs))
         self.assertEqual([len(b) for b in plan.batches], [3, 1])
-        self.assertTrue(any("TXT" in w for w in plan.document.warnings))
+        self.assertTrue(any("TXT" in str(w) for w in plan.document.warnings))
 
     def test_same_plan_is_deterministic(self):
         first = self.plan("\n\n".join(sentence(90, f"P{i}") for i in range(17)))
@@ -230,7 +232,7 @@ class MarkdownChunkingTests(ChunkingCase):
         locations = {s.unit_id: i for i, batch in enumerate(plan.batches) for s in batch}
         for row in plan.document.nodes[0].rows:
             self.assertEqual(len({locations[u] for u in row}), 1)
-        self.assertTrue(any("table" in w for w in plan.document.warnings))
+        self.assertTrue(any("table" in str(w) for w in plan.document.warnings))
         md, txt = render_document(plan.document, {})
         self.assertEqual(len(parse_rows(txt)), 13)
         self.assertIn("| Row11 |", md)
@@ -239,28 +241,28 @@ class MarkdownChunkingTests(ChunkingCase):
         text = "| A | B | C |\n| --- | --- | --- |\n| " + " | ".join([sentence(110)] * 3) + " |"
         plan = self.plan(text, markdown=True)
         self.assertGreater(len(plan.batches), 1)
-        self.assertTrue(any("table" in w for w in plan.document.warnings))
+        self.assertTrue(any("table" in str(w) for w in plan.document.warnings))
 
     def test_fitting_table_can_split_if_its_heading_must_fit_too(self):
         text = "## Table heading\n\n| A | B |\n| --- | --- |\n| " + sentence(121) + " | " + sentence(120) + " |"
         plan = self.plan(text, markdown=True)
         self.assertEqual(plan.batches[0][0].text, "Table heading")
         self.assertGreater(len(plan.batches[0]), 1)
-        self.assertTrue(any("table" in w for w in plan.document.warnings))
+        self.assertTrue(any("table" in str(w) for w in plan.document.warnings))
 
     def test_large_list_keeps_fitting_items_with_nested_paragraphs_together(self):
         text = "\n\n".join("- " + sentence(80, f"Item{i}") + "\n\n  " + sentence(80)
                               for i in range(5))
         plan = self.plan(text, markdown=True)
         self.assertEqual([len(b) for b in plan.batches], [2] * 5)
-        self.assertTrue(any("list" in w for w in plan.document.warnings))
+        self.assertTrue(any("list" in str(w) for w in plan.document.warnings))
 
     def test_large_sidebar_keeps_its_paragraphs_and_heading(self):
         text = "> ### Aside\n>\n" + "\n>\n".join("> " + sentence(100) for _ in range(5))
         plan = self.plan(text, markdown=True)
         self.assertEqual(plan.batches[0][0].text, "Aside")
         self.assertEqual([len(b) for b in plan.batches], [3, 2, 1])
-        self.assertTrue(any("quote" in w for w in plan.document.warnings))
+        self.assertTrue(any("quote" in str(w) for w in plan.document.warnings))
 
     def test_sidebar_heading_does_not_become_global_section_boundary(self):
         text = sentence(60) + "\n\n> ### Aside\n>\n> " + sentence(70) + "\n\n" + "\n\n".join([sentence(60)] * 3)
@@ -293,7 +295,7 @@ class MarkdownChunkingTests(ChunkingCase):
             identity = IDENTITY
 
             def prepare(self, options):
-                pass
+                return self
 
             def translate(self, request, *, executor):
                 return {i.id: i.text for i in request.items}
@@ -320,7 +322,7 @@ class MarkdownChunkingTests(ChunkingCase):
                 self.accepted = []
 
             def prepare(self, options):
-                pass
+                return self
 
             def translate(self, request, *, executor):
                 if len(request.items) > 2:

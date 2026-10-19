@@ -7,7 +7,7 @@ from pathlib import Path
 from reportlab.pdfgen.canvas import Canvas
 
 from pdf_translator import convert_pdf
-from pdf_translator.layout import merge_continuations
+from pdf_translator.continuations import merge_continuations
 from pdf_translator.models import Block, Line, SourceRegion, Word
 from tests.test_converter import PAGE, lines
 

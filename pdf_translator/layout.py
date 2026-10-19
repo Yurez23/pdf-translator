@@ -1,162 +1,15 @@
-"""Geometry-based reading order and paragraph recovery for one/two-column books.
-
-This is intentionally a heuristic layout engine, not an OCR or language model.
-All coordinates use PDF points, with a top-left origin (as in pdfplumber).
-"""
+"""Geometry-based ordering and block recovery within a page."""
 
 import math
 import re
-from collections import Counter
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from statistics import median
 
+from .geometry import contains, group_lines
+from .page_data import PageData
 from .models import BBox, Block, ConversionWarning, HyphenResolver, Line, SourceRegion, Word, union_bbox
-from .text import is_list, join_lines, normalize
+from .text import is_list, join_lines, normalize, terminal as _terminal
+from collections.abc import Callable
 
 type Warn = Callable[[ConversionWarning], None]
-
-
-@dataclass
-class TableData:
-    bbox: BBox
-    rows: list[list[str | None]]
-
-
-@dataclass
-class PageData:
-    number: int
-    width: float
-    height: float
-    words: list[Word]
-    body_size: float
-    tables: list[TableData] = field(default_factory=list)
-    frames: list[BBox] = field(default_factory=list)
-    separators: list[float] = field(default_factory=list)
-    dropcaps: list[BBox] = field(default_factory=list)
-    images: list[BBox] = field(default_factory=list)
-
-
-def contains(box: BBox, word: Word) -> bool:
-    x = (word.bbox[0] + word.bbox[2]) / 2
-    y = (word.bbox[1] + word.bbox[3]) / 2
-    return box[0] - 1 <= x <= box[2] + 1 and box[1] - 1 <= y <= box[3] + 1
-
-
-def body_size(words: list[Word]) -> float:
-    sizes: Counter[float] = Counter()
-    for word in words:
-        if word.upright:
-            sizes[round(word.size, 1)] += len(word.text)
-    return sizes.most_common(1)[0][0] if sizes else 10.0
-
-
-def remove_marginal_credits(page: PageData) -> None:
-    """Drop small, short, name-like vertical credits outside the body columns.
-
-    No single signal (not even rotation) is enough. Other rotated text is retained
-    with the usual warning. Font size along rotated text is unreliable in PDF
-    extraction, so use the transverse width of the vertical group instead.
-    """
-    body = [w for w in page.words if w.upright and page.body_size * 0.85 <= w.size <= page.body_size * 1.15 and len(w.text) > 1]
-    if not body:
-        return
-    left, right = min(w.bbox[0] for w in body), max(w.bbox[2] for w in body)
-    candidates = []
-    for word in page.words:
-        vertical = not word.upright and min(abs(word.angle-90), abs(word.angle-270)) <= 2
-        outside = (word.bbox[2] <= page.width * 0.08 and word.bbox[2] < left - page.body_size * 0.5
-                   or word.bbox[0] >= page.width * 0.92 and word.bbox[0] > right + page.body_size * 0.5)
-        if vertical and outside:
-            candidates.append(word)
-    groups: list[list[Word]] = []
-    for word in sorted(candidates, key=lambda w: (w.font, round(w.bbox[0]), w.bbox[1])):
-        compatible = [group for group in groups if group[0].font == word.font and abs(group[0].angle-word.angle) <= 2
-                      and abs(group[0].bbox[0]-word.bbox[0]) <= page.body_size * 0.35
-                      and 0 <= word.bbox[1] - group[-1].bbox[3] <= page.body_size * 1.5]
-        if compatible:
-            compatible[-1].append(word)
-        else:
-            groups.append([word])
-    ignored: set[int] = set()
-    for group in groups:
-        box = union_bbox([w.bbox for w in group])
-        name_parts = [w.text.replace("-", "").replace(".", "") for w in group]
-        name_like = (2 <= len(group) <= 6 and sum(map(len, name_parts)) <= 60
-                     and all(part.isalpha() and (part.isupper() or part.istitle() or part[::-1].istitle()) for part in name_parts))
-        if (name_like and box[2]-box[0] <= page.body_size * 0.9
-                and box[3]-box[1] >= (box[2]-box[0]) * 2
-                and box[3]-box[1] <= page.body_size * 12):
-            ignored.update(id(w) for w in group)
-    page.words = [w for w in page.words if id(w) not in ignored]
-
-
-def group_lines(words: list[Word], size: float, *, split_gaps: bool = False) -> list[Line]:
-    """Group on baselines so mixed sizes/small capitals stay on the same line."""
-    rows: list[list[Word]] = []
-    baselines: list[float] = []
-    for word in sorted(words, key=lambda w: (w.bbox[3], w.bbox[0])):
-        candidates = [i for i in range(max(0, len(rows) - 4), len(rows)) if abs(baselines[i] - word.bbox[3]) <= max(2.0, size * 0.25)]
-        if candidates:
-            i = min(candidates, key=lambda j: abs(baselines[j] - word.bbox[3]))
-            rows[i].append(word)
-            baselines[i] = median(w.bbox[3] for w in rows[i])
-        else:
-            rows.append([word])
-            baselines.append(word.bbox[3])
-    lines: list[Line] = []
-    for row in rows:
-        groups: list[list[Word]] = [[]]
-        for word in sorted(row, key=lambda w: w.bbox[0]):
-            if split_gaps and groups[-1] and word.bbox[0] - groups[-1][-1].bbox[2] > size * 3:
-                groups.append([])
-            groups[-1].append(word)
-        for group in groups:
-            weights = Counter()
-            for word in group:
-                weights[round(word.size, 1)] += len(word.text)
-            lines.append(Line(group, union_bbox([w.bbox for w in group]), weights.most_common(1)[0][0]))
-    return sorted(lines, key=lambda line: (line.bbox[1], line.bbox[0]))
-
-
-def integrate_dropcaps(page: PageData) -> None:
-    """A large initial may share several lines, but belongs to the first word."""
-    for cap in list(page.words):
-        if not (cap.upright and len(cap.text) == 1 and cap.text.isalpha() and cap.size >= page.body_size * 2.5):
-            continue
-        candidates = [w for w in page.words if w is not cap and w.upright and w.text[:1].islower()
-                      and 0 <= w.bbox[0] - cap.bbox[2] <= page.body_size * 2
-                      and cap.bbox[1] - 2 <= w.bbox[1] <= cap.bbox[1] + cap.size * 0.5]
-        if not candidates:
-            continue
-        first = min(candidates, key=lambda w: (w.bbox[1], w.bbox[0]))
-        page.dropcaps.append(cap.bbox)
-        first.text = cap.text + first.text
-        first.bbox = (cap.bbox[0], first.bbox[1], first.bbox[2], first.bbox[3])
-        first.size = page.body_size
-        page.words.remove(cap)
-
-
-def remove_running_margins(pages: list[PageData]) -> None:
-    candidates: list[tuple[PageData, Line, tuple[str, str]]] = []
-    occurrences: dict[tuple[str, str], set[int]] = {}
-    for page in pages:
-        for line in group_lines([w for w in page.words if w.upright], page.body_size, split_gaps=True):
-            side = "top" if line.bbox[3] < page.height * 0.09 else "bottom" if line.bbox[1] > page.height * 0.91 else ""
-            if not side:
-                continue
-            key = (side, normalize(re.sub(r"\d+", "", normalize(line.text).casefold())))
-            occurrences.setdefault(key, set()).add(page.number)
-            candidates.append((page, line, key))
-    # Recto and verso pages often use different running titles.
-    threshold = max(2, math.ceil(len(pages) * 0.3))
-    remove: set[int] = set()
-    for page, line, key in candidates:
-        number = bool(re.fullmatch(r"\d{1,6}", line.text.strip()))
-        if number or len(occurrences[key]) >= threshold:
-            remove.update(id(w) for w in line.words)
-    for page in pages:
-        page.words = [w for w in page.words if id(w) not in remove]
 
 
 def _gutter(words: list[Word], page: PageData) -> tuple[float, float, float] | None:
@@ -188,10 +41,6 @@ def _gutter(words: list[Word], page: PageData) -> tuple[float, float, float] | N
         return None
     _, split, x0, x1 = max(valid)
     return split, x0, x1
-
-
-def _terminal(text: str) -> bool:
-    return bool(re.search(r"[.!?…:][\"'’”\])]*$", text.strip()))
 
 
 def _lead_in(line: Line) -> bool:
@@ -406,88 +255,3 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenR
         text = join_lines((line.text for line in group_lines(rotated, page.body_size)), lexicon, page.number, warn, resolver)
         ordered.append(Block("raw", text, (SourceRegion(page.number, union_bbox([w.bbox for w in rotated])),), role="rotated"))
     return ordered
-
-
-def _line_font(line: Line) -> str:
-    fonts: Counter[str] = Counter()
-    for word in line.words:
-        # PDF subset prefixes can differ between pages of the same document.
-        fonts[re.sub(r"^[A-Z]{6}\+", "", word.font)] += len(word.text)
-    return fonts.most_common(1)[0][0] if fonts else ""
-
-
-def _closes_open_bracket(previous: str, following: str) -> bool:
-    pairs = {"(": ")", "[": "]", "{": "}"}
-    stack: list[str] = []
-    for char in previous:
-        if char in pairs:
-            stack.append(pairs[char])
-        elif stack and char == stack[-1]:
-            stack.pop()
-    depth = len(stack)
-    if not depth:
-        return False
-    for char in following:
-        if char in ".!?…":
-            break
-        if char in pairs:
-            stack.append(pairs[char])
-        elif stack and char == stack[-1]:
-            stack.pop()
-            if len(stack) < depth:
-                return True
-    return False
-
-
-def _continuation_start(previous: str, following: str) -> bool:
-    # A quotation mark is not a sentence boundary. Capitalized continuations
-    # still need an extra signal: closing a bracket left open on the prior page.
-    start = following.lstrip("\"'‘“«")
-    return (start[:1].islower() or previous.endswith("-")
-            or _closes_open_bracket(previous, following))
-
-
-def _continuation_alignment(previous: Block, following: Block) -> bool:
-    if previous.container_left is None or following.container_left is None:
-        return False
-    tolerance = previous.body_size * 0.45
-    first = following.lines[0]
-    # Returning to the left after the first line identifies a NEW paragraph,
-    # including a paragraph following a list with a similar hanging indent.
-    if any(line.bbox[0] < first.bbox[0] - tolerance for line in following.lines[1:]):
-        return False
-    offset = first.bbox[0] - following.container_left
-    if abs(offset) <= tolerance:
-        return True
-    if previous.kind == "list_item" and len(previous.lines) > 1:
-        hanging = previous.lines[-1].bbox[0] - previous.container_left
-        return hanging > previous.body_size * 0.5 and abs(offset - hanging) <= tolerance
-    return False
-
-
-def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
-    result: list[Block] = []
-    for block in blocks:
-        # Marginal art credits must not break an otherwise clear page continuation.
-        prev = next((b for b in reversed(result) if b.role != "rotated" and b.kind != "footnote"), None)
-        if (prev and prev.kind in ("paragraph", "list_item") and block.kind == "paragraph"
-                and prev.lines and block.lines):
-            a, b = prev.sources[-1], block.sources[0]
-            next_page = b.page == a.page + 1
-            next_column = (a.page == b.page and prev.container_left is not None and block.container_left is not None
-                           and block.container_left > prev.container_left + prev.body_size * 4)
-            last = prev.lines[-1]
-            first = block.lines[0]
-            full_line = last.bbox[2] - a.bbox[0] >= prev.container_width * 0.75
-            if ((next_page or next_column) and not _terminal(prev.text) and (full_line or prev.text.endswith("-"))
-                    and _continuation_start(prev.text, block.text) and _continuation_alignment(prev, block)
-                    and abs(first.size - last.size) <= prev.body_size * 0.15
-                    and _line_font(first) == _line_font(last)):
-                prev.text = join_lines([prev.text, block.text], lexicon, b.page, warn, resolver)
-                prev.sources += block.sources
-                prev.lines += block.lines
-                prev.container_left = block.container_left
-                prev.container_width = block.container_width
-                continue
-        result.append(block)
-    return result

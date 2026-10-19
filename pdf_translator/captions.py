@@ -6,7 +6,8 @@ and a page-sized background is also an image in many illustrated books.
 
 from collections import Counter
 
-from .layout import PageData, contains, group_lines
+from .geometry import contains, group_lines
+from .page_data import PageData
 from .models import BBox, Line, Word
 
 
