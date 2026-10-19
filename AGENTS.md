@@ -27,7 +27,19 @@
   reports in English. Preserve source quotations verbatim in their original
   language. The coordinating agent presents the findings to the user in Russian.
 - These rules apply to every subagent working on this project, not just auditors.
-- OCR, translation, and a web interface are outside the project's scope.
+- OCR and a web interface are outside the project's scope. Translation is an
+  optional, separate Gemini API stage; PDF conversion must remain local and
+  network-free. Gemini is the go-to provider for the first integration.
+- Keep translation provider-independent (DIP): the core depends on translation
+  ports, never a concrete SDK, prompt or wire format. Select adapters in the
+  composition root; namespace checkpoints by provider identity and revision.
+- Auto routing uses a dynamic Gemini catalog and a project-local ignored
+  `model-availability.sqlite3` negative cache. Never persist keys, source text,
+  translations or raw provider errors in that database. Preserve per-segment
+  model attribution in the separate translation journal when routing changes.
+- Do not send user documents in live API requests merely to implement or test
+  translation. Use offline mocks unless the user explicitly requests a live
+  translation/test. Never print, commit, or include API keys in reports or HTML.
 - Do not commit or push unless the user explicitly requests it.
 
 ## Documentation maintenance before commits

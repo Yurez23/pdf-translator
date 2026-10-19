@@ -11,10 +11,12 @@ requires-python = ">=3.12"
 dependencies = ["pdfplumber>=0.11.9,<0.12"]
 
 [project.optional-dependencies]
-dev = ["reportlab>=4,<5"]
+translation = ["google-genai>=2.31,<3", "markdown-it-py>=3,<5", "tzdata>=2025.2"]
+dev = ["reportlab>=4,<5", "google-genai>=2.31,<3", "markdown-it-py>=3,<5", "tzdata>=2025.2"]
 
 [project.scripts]
 pdf-translator = "pdf_translator.cli:main"
+pdf-translate = "pdf_translator.translation.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["pdf_translator*"]

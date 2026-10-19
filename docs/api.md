@@ -24,6 +24,17 @@ from pdf_translator import (
 типы и служебные функции доступны в исходных модулях, но не входят в эту границу;
 формат JSON, сериализация модели и плагинный API не определены.
 
+Этот раздел относится к локальному API конвертации. Отдельный необязательный
+пакет `pdf_translator.translation` экспортирует `plan_translation`, `translate_file`,
+`TranslationOptions`, `TranslationPlan`, `TranslationResult`, `TranslationError`,
+`ProviderIdentity`, `TranslationProvider`, `TranslationRequest`, `TranslationItem`,
+`RequestExecutor`, `BatchTooLarge`, `TranslationResponse`. Адаптер передаётся явно по DIP; у локального
+плана требуется его identity. Контракты, файловые операции и разрешение сети описаны в
+[руководстве по переводу](translation.md); корневой API из восьми имён не изменён.
+В `TranslationOptions` жёсткий `max_chunk_chars=16000` (можно уменьшить до 256),
+`max_output_tokens=16384`. План выбирает смысловые границы подразделов/абзацев/
+предложений; версия контракта планирования 3 включает политику и границы пакетов.
+
 ## `convert_pdf`
 
 ```python
