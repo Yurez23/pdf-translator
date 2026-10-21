@@ -8,13 +8,14 @@ from .models import ConversionWarning, HyphenationIssue, HyphenResolver
 
 _LIGATURES = str.maketrans({"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st"})
 _WORD = re.compile(r"[^\W\d_]+(?:[-’'][^\W\d_]+)*", re.UNICODE)
-_LIST = re.compile(r"^(?:[•●▪◦‣*\-–]\s+|\(?\d+[.)]\s+|[A-Za-z][.)]\s+)")
+_LIST = re.compile(r"^(?:[•●▪◦‣◆◇*\-–]\s+|\(?\d+[.)]\s+|[A-Za-z][.)]\s+)")
 
 
 def normalize(text: str) -> str:
     # NFC preserves meaningful typography and mathematical characters.
     text = unicodedata.normalize("NFC", text.translate(_LIGATURES))
-    return re.sub(r"[\s\u00a0\u2007\u202f]+", " ", text).strip()
+    text = re.sub(r"[\s\u00a0\u2007\u202f]+", " ", text).strip()
+    return re.sub(r"(?<=[^\W\d_]) +([.,;:!?])(?=\s|$)",r"\1",text)
 
 
 def vocabulary(texts: Iterable[str]) -> set[str]:

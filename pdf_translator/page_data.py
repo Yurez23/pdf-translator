@@ -8,6 +8,7 @@ from .models import BBox, Word
 class TableData:
     bbox: BBox
     rows: list[list[str | None]]
+    repaired_gaps: bool = False
 
 
 @dataclass
@@ -22,3 +23,5 @@ class PageData:
     separators: list[float] = field(default_factory=list)
     dropcaps: list[BBox] = field(default_factory=list)
     images: list[BBox] = field(default_factory=list)
+    diagram_boxes: list[BBox] = field(default_factory=list)
+    caption_styles: set[tuple] = field(default_factory=set)

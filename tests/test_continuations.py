@@ -38,7 +38,7 @@ class LabelLayoutTests(unittest.TestCase):
         self.assertIn("your command", block.text)
         self.assertNotIn("- Loyal Cadre.", result.markdown)
 
-    def test_hanging_bold_label_remains_a_list(self):
+    def test_hanging_bold_label_keeps_grouping_without_inventing_bullets(self):
         def draw(c):
             self.label(c, "Save Others.", "You defend people who cannot", x=50, top=110)
             lines(c, ["protect themselves."], x=62, top=124)
@@ -46,8 +46,10 @@ class LabelLayoutTests(unittest.TestCase):
             lines(c, ["about the world."], x=62, top=152)
         result = self.convert(draw)
         self.assertEqual([b.kind for b in result.blocks], ["list_item", "list_item"])
-        self.assertIn("- Save Others.", result.markdown)
-        self.assertIn("- Seek Truth.", result.markdown)
+        self.assertTrue(all(b.role == 'labelled_entry' for b in result.blocks))
+        self.assertNotIn("- Save Others.", result.markdown)
+        self.assertNotIn("- Seek Truth.", result.markdown)
+        self.assertIn("Save Others. You defend people who cannot protect themselves.\n\nSeek Truth.", result.markdown)
 
     def test_single_line_bold_prose_does_not_borrow_next_paragraph_indent(self):
         def draw(c):
@@ -85,7 +87,7 @@ class LabelLayoutTests(unittest.TestCase):
         self.assertEqual([s.page for s in result.blocks[0].sources], [1, 2])
         self.assertEqual(result.markdown.count("1. A long list"), 1)
 
-    def test_implicit_list_continuation_keeps_one_bullet(self):
+    def test_implicit_list_continuation_keeps_text_without_inventing_bullet(self):
         def draw(c):
             self.label(c, "Save Others.", "You defend those who cannot", x=50, top=680)
             lines(c, ["protect themselves when they are faced with"], x=62, top=694)
@@ -95,7 +97,9 @@ class LabelLayoutTests(unittest.TestCase):
         self.assertEqual(len(result.blocks), 1)
         self.assertEqual(result.blocks[0].kind, "list_item")
         self.assertIn("with danger", result.text)
-        self.assertEqual(result.markdown.count("- Save Others."), 1)
+        self.assertEqual(result.markdown.count("Save Others."), 1)
+        self.assertNotIn("- Save Others.", result.markdown)
+        self.assertEqual(result.blocks[0].role,'labelled_entry')
 
     def test_first_line_indent_on_next_page_stays_a_new_paragraph(self):
         def draw(c):

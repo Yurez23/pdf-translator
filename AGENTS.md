@@ -41,6 +41,10 @@
   translation. Use offline mocks unless the user explicitly requests a live
   translation/test. Never print, commit, or include API keys in reports or HTML.
 - Do not commit or push unless the user explicitly requests it.
+- Never commit or force-add user example PDFs or their conversion/translation
+  artifacts. Keep the example collection under ignored `example/` (legacy
+  `example.pdf` is also ignored), and generated outputs/journals/reports under
+  ignored `output/` or `tmp/`. Local HTML documentation remains ignored too.
 - Response-validation recovery retries the whole unchanged batch on the same
   model; never split it or concatenate partial answers to repair an invalid
   response. Exhausted response retries isolate that batch and produce an

@@ -219,7 +219,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Local conversion results and visual QA renders
+# User-supplied example documents (never commit or force-add)
+/example/
+/example.pdf
+
+# Local conversion/translation results, journals, audits and visual QA renders
 /output/
 /tmp/
 /logs/

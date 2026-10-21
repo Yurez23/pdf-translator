@@ -32,7 +32,7 @@ _ENUMS = {
     "finish_reason": {"STOP", "MAX_TOKENS", "SAFETY", "RECITATION", "OTHER"},
     "provider": {"gemini", "gemini-auto", "external"},
     "command": {"conversion", "translation", "api"},
-    "code": {"empty_page", "unmapped_glyph", "table_detection", "complex_table", "rotated_text", "ambiguous_hyphen", "heading_depth", "numbers_changed", "unchanged_text", "container_split", "txt_structure", "literal_preserved", "preview", "unspecified"},
+    "code": {"empty_page", "unmapped_glyph", "table_detection", "complex_table", "diagram_layout", "rotated_text", "ambiguous_hyphen", "heading_depth", "graphic_text", "numbers_changed", "unchanged_text", "container_split", "txt_structure", "literal_preserved", "preview", "unspecified"},
     "error_code": {"cancelled", "paused", "request_limit", "quota", "provider", "network_timeout", "network_transport", "sdk", "input_or_validation", "filesystem", "batch_too_large", "response_validation", "response_exhausted", "unexpected"},
 }
 

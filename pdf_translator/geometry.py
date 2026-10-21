@@ -23,7 +23,9 @@ def group_lines(words: list[Word], size: float, *, split_gaps: bool = False) -> 
     """Group on baselines so mixed sizes/small capitals stay on the same line."""
     rows: list[list[Word]] = []
     baselines: list[float] = []
-    for word in sorted(words, key=lambda w: (w.bbox[3], w.bbox[0])):
+    markers = [w for w in words if w.text in "•●▪◦‣◆◇" and len(w.text) == 1 and w.size <= size * 1.1]
+    marker_ids = {id(w) for w in markers}
+    for word in sorted((w for w in words if id(w) not in marker_ids), key=lambda w: (w.bbox[3], w.bbox[0])):
         candidates = [i for i in range(max(0, len(rows) - 4), len(rows)) if abs(baselines[i] - word.bbox[3]) <= max(2.0, size * 0.25)]
         if candidates:
             i = min(candidates, key=lambda j: abs(baselines[j] - word.bbox[3]))
@@ -32,6 +34,21 @@ def group_lines(words: list[Word], size: float, *, split_gaps: bool = False) -> 
         else:
             rows.append([word])
             baselines.append(word.bbox[3])
+    # Small dingbat bullets do not share the prose baseline metrics. Attach
+    # only to nearby text on the right with a matching vertical centre.
+    for marker in markers:
+        candidates = []
+        for i, row in enumerate(rows):
+            for word in row:
+                gap = word.bbox[0] - marker.bbox[2]
+                dy = abs((word.bbox[1] + word.bbox[3] - marker.bbox[1] - marker.bbox[3]) / 2)
+                if (0 <= gap <= size * 1.8 and dy <= size * .4
+                        and min(word.bbox[3], marker.bbox[3]) > max(word.bbox[1], marker.bbox[1])):
+                    candidates.append((dy, gap, i))
+        if candidates:
+            rows[min(candidates)[2]].append(marker)
+        else:
+            rows.append([marker])
     lines: list[Line] = []
     for row in rows:
         groups: list[list[Word]] = [[]]

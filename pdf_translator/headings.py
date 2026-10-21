@@ -7,6 +7,17 @@ from dataclasses import dataclass
 from statistics import median
 
 from .models import Block, ConversionWarning
+from .paragraphs import italic
+
+
+def graphic_label(line, body: float) -> bool:
+    """Retain symbolic glyphs/spaced numeric diagram rows outside the outline."""
+    if line.words and all(len(w.text) == 1 and any(tag in w.font.lower() for tag in ("dingbat", "symbol", "icon"))
+                          for w in line.words):
+        return True
+    return (len(line.words) >= 2 and all(w.text.isdecimal() for w in line.words)
+            and line.size > body * 1.15
+            and any(b.bbox[0] - a.bbox[2] > body * .8 for a, b in zip(line.words, line.words[1:])))
 
 
 @dataclass(frozen=True)
@@ -43,6 +54,12 @@ def _auxiliary_heading(block: Block, following: Block) -> str:
     gap = b.bbox[1] - a.bbox[3]
     overlap = min(a.bbox[2], b.bbox[2]) - max(a.bbox[0], b.bbox[0])
     width = min(a.bbox[2] - a.bbox[0], b.bbox[2] - b.bbox[0])
+    if following.role == 'diagram' and 0 <= gap <= block.body_size*2.5 and overlap >= width*.75:
+        return 'aside_title'
+    if following.kind == "aside" and not following.children and following.lines and all(italic(line) for line in following.lines):
+        centered = abs((a.bbox[0] + a.bbox[2] - b.bbox[0] - b.bbox[2]) / 2) <= block.body_size * 2
+        if centered and 0 <= gap <= block.body_size * 1.5:
+            return "aside_title"
     if following.kind == "table" or following.kind == "raw" and following.role == "complex_table":
         if 0 <= gap <= block.body_size * 1.5 and overlap >= width * 0.75:
             return "table_title"

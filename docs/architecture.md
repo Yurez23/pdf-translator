@@ -53,7 +53,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/models.py](../pdf_translator/models.py) | Общие структуры: `Word`, `Line`, `Block`, `SourceRegion`, результат, предупреждения и вопрос о переносе; типы `BBox`, `BlockKind`, `HyphenResolver`. `union_bbox` объединяет геометрию. |
 | [pdf_translator/layout.py](../pdf_translator/layout.py) | `layout_page`, `_blocks_for_lines`: внутристранничные блоки, колонки, списки, таблицы и вставки; без чтения PDF или межстраничной склейки. |
 | [pdf_translator/captions.py](../pdf_translator/captions.py) | `remove_figure_captions`: исключение коротких обособленных подписей по оформлению и соседству с изображением. Защищает основной текст, таблицы, их названия и рамочные вставки. |
-| [pdf_translator/headings.py](../pdf_translator/headings.py) | `HeadingStyle` и `assign_heading_levels`: ранжирование размеров по всему документу, отделение названий таблиц и меток перед крупным заголовком от основного оглавления. |
+| [pdf_translator/headings.py](../pdf_translator/headings.py) | `graphic_label`, `HeadingStyle`, `assign_heading_levels`: исключение графических надписей, ранжирование размеров по всему документу, вспомогательные названия таблиц/эпиграфов и метки над крупным заголовком. |
 | [pdf_translator/text.py](../pdf_translator/text.py) | `normalize`: пробелы, Unicode, лигатуры. `vocabulary`: словарь выбранного текста. `is_list`: явные маркеры. `join_lines`: склейка строк, переносы и вызов обработчика неоднозначностей. |
 | [pdf_translator/export.py](../pdf_translator/export.py) | `render`: одинаковый набор блоков в Markdown и TXT, экранирование, таблицы, списки, рекурсивные вставки. Не читает PDF и не пишет файлы. |
 | [pdf_translator/telemetry.py](../pdf_translator/telemetry.py) | `EventSink`, `log_run`, `span`, `emit`, `instrument`: безопасная схема событий, allowlist, UTC/монотонные длительности, ContextVar, идентификаторы и уровни. Без файловой настройки или SDK. |
@@ -63,6 +63,9 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/page_selection.py](../pdf_translator/page_selection.py) | Разбор физических 1-based диапазонов и последовательностей страниц. |
 | [pdf_translator/pdf_reader.py](../pdf_translator/pdf_reader.py) | Владение PDF-ресурсами, `_read_page`, объекты pdfplumber, закрытие страниц и перевод ошибок чтения. |
 | [pdf_translator/geometry.py](../pdf_translator/geometry.py) | `contains`, `body_size`, `group_lines`: общие координаты и строки. |
+| [pdf_translator/paragraphs.py](../pdf_translator/paragraphs.py) | Типографические правила вводных/висячих пунктов, продолжения жирной фразы, отступа новой первой строки и границы авторского курсива; без PDF SDK и I/O. |
+| [pdf_translator/diagrams.py](../pdf_translator/diagrams.py) | Узкий геометрический детектор раздельных карточек: белые панели, повторяемые ширины, настоящие промежутки и корневые узлы; без интерпретации стрелок. |
+| [pdf_translator/table_recovery.py](../pdf_translator/table_recovery.py) | Восстановление окрашенных таблиц и групповых статблоков по нейтральным словам/геометрии, с защитой прежних ячеек от потери. |
 | [pdf_translator/preprocessing.py](../pdf_translator/preprocessing.py) | Вертикальные имена, буквицы и повторяющиеся колонтитулы; прежний порядок эвристик. |
 | [pdf_translator/continuations.py](../pdf_translator/continuations.py) | Склейка продолжений между страницами/колонками и консервативные проверки шрифта, отступов и скобок. |
 | [pdf_translator/file_outputs.py](../pdf_translator/file_outputs.py) | Общая подготовка и публикация UTF-8-файлов; path/overwrite policy задаёт вызывающий сценарий. |
@@ -115,8 +118,12 @@ CLI: __main__ / console script → cli.main
 | Файл | Что проверяет |
 | --- | --- |
 | [tests/__init__.py](../tests/__init__.py) | Делает тесты пакетом; позволяет импортировать общие генераторы контрольных PDF. |
-| [tests/test_converter.py](../tests/test_converter.py) | `TextTests`, `PdfTests`, `CliTests`, `ReferencePdfTests`: текстовые правила, сквозная конвертация, CLI и необязательная регрессия на локальном `example.pdf`. |
+| [tests/test_converter.py](../tests/test_converter.py) | `TextTests`, `PdfTests`, `CliTests`, `ReferencePdfTests`: текстовые правила, сквозная конвертация, CLI и необязательная контрольная глава `example/10. Chapter 8 Goals and Rewards.pdf` (старый fallback: `example.pdf`). |
 | [tests/test_continuations.py](../tests/test_continuations.py) | `LabelLayoutTests`, `ContinuationRulesTests`: жирные начала, отступы, списки, кавычки/скобки, страницы/колонки и запреты на ошибочную склейку. |
+| [tests/test_layout_recovery.py](../tests/test_layout_recovery.py) | Общие положительные/отрицательные проверки графических надписей, малых буллитов, абзацев/диалога; необязательные локальные регрессии Introduction. |
+| [tests/test_book_recovery.py](../tests/test_book_recovery.py) | Межглавные регрессии: швы колонок/страниц, отступы, поля, цитаты, буквицы, overprint-пробелы и потерянные ячейки. |
+| [tests/test_diagrams.py](../tests/test_diagrams.py) | Положительные/отрицательные сетки карточек, отдельные владельцы текста и независимые локальные проверки карточек по исходным координатам. |
+| [tests/test_table_recovery.py](../tests/test_table_recovery.py) | Окрашенные таблицы, статблоки, сохранность ячеек и отрицательные примеры без привязки к именам книги; необязательные локальные регрессии. |
 | [tests/test_captions.py](../tests/test_captions.py) | `CaptionTests`: подписи у изображений, стили и цвета, фоновые изображения и защита полезных коротких текстов. |
 | [tests/test_headings.py](../tests/test_headings.py) | `DocumentHeadingTests`, `HeadingStyleTests`: уровни по документу, допуски размеров, выбор страниц, вспомогательные названия, предел H6, отсутствие лишних вопросов. |
 | [tests/test_asides.py](../tests/test_asides.py) | `AsideLayoutTests`, `AsideExportTests`: одна рамка — один контейнер, заголовки/абзацы/списки внутри, экспорт без дублирования. |
@@ -142,7 +149,7 @@ CLI: __main__ / console script → cli.main
 | Файл | Назначение |
 | --- | --- |
 | [pyproject.toml](../pyproject.toml) | Версия, Python, зависимости, setuptools, console script и состав устанавливаемого пакета. |
-| [.gitignore](../.gitignore) | Исключения Git: в частности окружения, сборка, кэши, `output/` и `tmp/`. Общий шаблон содержит исключения для инструментов, которых проект не использует; это не список зависимостей. |
+| [.gitignore](../.gitignore) | Исключения Git: окружения, сборка, кэши, пользовательские `example/` и `example.pdf`, результаты в `output/`, `tmp/` и логи. Общий шаблон содержит исключения для инструментов, которых проект не использует; это не список зависимостей. |
 | [README.md](../README.md) | Краткое описание, быстрый старт, примеры API и навигация по документации. |
 | [TODO.md](../TODO.md) | Выполненные нарезка, логирование, SOLID, async и восстановление ответов; отложенная живая сравнительная оценка размеров. |
 | [AGENTS.md](../AGENTS.md) | Обязательные границы полномочий, языки общения и правила независимого аудита. Это инструкции для агентов, не настройки конвертера. |
@@ -164,7 +171,8 @@ CLI: __main__ / console script → cli.main
 
 | Путь | Статус и смысл |
 | --- | --- |
-| `example.pdf` | Пользовательский контрольный PDF; не поставляется с пакетом. `.gitignore` не исключает все PDF: пример может отображаться как untracked. Не добавлять книгу в коммит автоматически. |
+| `example.pdf` | Старый пользовательский контрольный PDF; явно игнорируется Git, не поставляется с пакетом и не добавляется принудительно. |
+| `example/` | Пользовательский нумерованный набор: 0 — полная книга, 2–17 — содержательные фрагменты, 1 и 18–20 — вспомогательные части. Весь каталог явно игнорируется Git; книги не публикуются. Артефакты проверок — отдельно в игнорируемом `output/pdf/`. |
 | `output/<stem>.md`, `output/<stem>.txt` | Результаты выбранного запуска CLI. Имя не содержит диапазон страниц или версию кода. |
 | `output/translations/<stem>.<lang>.md`, `.txt`, `.translation.json` | Перевод и отдельный журнал прогресса. Итоги пишутся только после завершения выбранной пробы/файла. |
 | `model-availability.sqlite3` и `-journal` / `-wal` / `-shm` | Общий локальный кэш ограничений auto, наблюдаемых aliases и аренд. Игнорируется Git; тексты и ключи не сохраняются. Не журнал перевода. |

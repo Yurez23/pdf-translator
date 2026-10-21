@@ -38,12 +38,13 @@ def remove_marginal_credits(page: PageData) -> None:
     ignored: set[int] = set()
     for group in groups:
         box = union_bbox([w.bbox for w in group])
-        name_parts = [w.text.replace("-", "").replace(".", "") for w in group]
-        name_like = (2 <= len(group) <= 6 and sum(map(len, name_parts)) <= 60
+        name_parts = ["".join(c for c in w.text if c.isalpha()) for w in group if w.text != "&"]
+        name_like = (2 <= len(name_parts) <= 10 and sum(map(len, name_parts)) <= 100
+                     and not any(any(c.isdigit() for c in w.text) for w in group)
                      and all(part.isalpha() and (part.isupper() or part.istitle() or part[::-1].istitle()) for part in name_parts))
-        if (name_like and box[2]-box[0] <= page.body_size * 0.9
+        if (name_like and box[2]-box[0] <= page.body_size * 0.95
                 and box[3]-box[1] >= (box[2]-box[0]) * 2
-                and box[3]-box[1] <= page.body_size * 12):
+                and box[3]-box[1] <= page.body_size * (30 if any('&' in w.text or ';' in w.text for w in group) else 20)):
             ignored.update(id(w) for w in group)
     page.words = [w for w in page.words if id(w) not in ignored]
 
@@ -53,14 +54,17 @@ def integrate_dropcaps(page: PageData) -> None:
     for cap in list(page.words):
         if not (cap.upright and len(cap.text) == 1 and cap.text.isalpha() and cap.size >= page.body_size * 2.5):
             continue
-        candidates = [w for w in page.words if w is not cap and w.upright and w.text[:1].islower()
+        candidates = [w for w in page.words if w is not cap and w.upright and w.text[:1].isalpha()
+                      and page.body_size * .8 <= w.size <= page.body_size * 1.2
                       and 0 <= w.bbox[0] - cap.bbox[2] <= page.body_size * 2
                       and cap.bbox[1] - 2 <= w.bbox[1] <= cap.bbox[1] + cap.size * 0.5]
         if not candidates:
             continue
         first = min(candidates, key=lambda w: (w.bbox[1], w.bbox[0]))
         page.dropcaps.append(cap.bbox)
-        first.text = cap.text + first.text
+        # A capitalized following word is distinct (e.g. a standalone "I").
+        # Preserve the source spelling; never invent a missing letter.
+        first.text = cap.text + (" " if first.text[:1].isupper() else "") + first.text
         first.bbox = (cap.bbox[0], first.bbox[1], first.bbox[2], first.bbox[3])
         first.size = page.body_size
         page.words.remove(cap)

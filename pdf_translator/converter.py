@@ -67,7 +67,8 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
         assign_heading_levels(document_blocks, selected_pages, warn)
     blocks = [block for block in document_blocks if block.sources[0].page in selected_pages]
     with span("conversion.continuations"):
-        blocks = merge_continuations(blocks, lexicon, warn, hyphen_resolver)
+        empty_pages = {page.number for page in extracted if page.number in selected_pages and not page.words}
+        blocks = merge_continuations(blocks, lexicon, warn, hyphen_resolver, empty_pages=empty_pages)
     with span("conversion.render"):
         markdown, text = render(blocks)
     if not text.strip():

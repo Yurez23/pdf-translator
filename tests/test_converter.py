@@ -25,6 +25,9 @@ from pdf_translator.export import render
 from pdf_translator.text import join_lines, normalize
 
 ROOT = Path(__file__).resolve().parents[1]
+REFERENCE_PDF = ROOT / "example/10. Chapter 8 Goals and Rewards.pdf"
+if not REFERENCE_PDF.is_file():
+    REFERENCE_PDF = ROOT / "example.pdf"
 PAGE = (612, 792)
 
 
@@ -430,11 +433,11 @@ class CliTests(unittest.TestCase):
         self.assertIn("--pages", result.stdout)
 
 
-@unittest.skipUnless((ROOT / "example.pdf").exists(), "Local reference PDF is not distributed with the source")
+@unittest.skipUnless(REFERENCE_PDF.exists(), "Local reference PDF is not distributed with the source")
 class ReferencePdfTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.result = convert_pdf(ROOT / "example.pdf")
+        cls.result = convert_pdf(REFERENCE_PDF)
 
     def test_chapter_opening_and_reading_order(self):
         text = self.result.text
@@ -496,7 +499,7 @@ class ReferencePdfTests(unittest.TestCase):
         self.assertIn("**Example Companions by Tier**", self.result.markdown.splitlines())
 
     def test_page_six_keeps_the_same_heading_levels_without_chapter_title(self):
-        selected = convert_pdf(ROOT / "example.pdf", pages="6")
+        selected = convert_pdf(REFERENCE_PDF, pages="6")
         titles = {b.text: b.level for b in selected.blocks if b.kind == "heading" and not b.role}
         self.assertEqual(titles, {"Reward Categories": 2, "Companions": 3,
                                   "Companion Activities": 4, "Companions in Scenes": 4})
@@ -544,7 +547,7 @@ class ReferencePdfTests(unittest.TestCase):
         expected = collections.Counter()
         # Explicit locations in this reference book, independent of the detector.
         labels = {8: [(363, 207, 434, 222)], 11: [(405, 53, 474, 78)]}
-        with pdfplumber.open(ROOT / "example.pdf") as pdf:
+        with pdfplumber.open(REFERENCE_PDF) as pdf:
             for page in pdf.pages:
                 clean = page.dedupe_chars(tolerance=.5, extra_attrs=("fontname", "size"))
                 for word in clean.extract_words():
@@ -561,7 +564,7 @@ class ReferencePdfTests(unittest.TestCase):
     def test_all_seven_tables_keep_their_98_source_cells(self):
         tables = [b for b in self.result.blocks if b.kind == "table"]
         checked, cells = 0, 0
-        with pdfplumber.open(ROOT / "example.pdf") as pdf:
+        with pdfplumber.open(REFERENCE_PDF) as pdf:
             for page in pdf.pages:
                 for table in page.dedupe_chars(tolerance=.5, extra_attrs=("fontname", "size")).find_tables():
                     rows = table.extract(x_tolerance=2, y_tolerance=3)

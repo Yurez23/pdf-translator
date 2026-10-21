@@ -82,12 +82,88 @@ class CaptionTests(unittest.TestCase):
         self.assertNotIn("SECOND LABEL LINE", result.text)
         self.assertIn("The main paragraph occupies the left column.", result.text)
 
+    def test_large_overlaid_three_line_caption_is_removed_as_a_group(self):
+        def draw(c):
+            picture(c, x=320, top=180, width=270, height=430)
+            prose(c)
+            text(c, ['Travellers explore', 'the ancient ruins', 'under a strange sky.'],
+                 x=345, top=400, font='Helvetica-Oblique', size=25,
+                 color=colors.Color(.4,.5,.6), leading=20)
+        result = self.convert(draw)
+        self.assertNotIn('Travellers explore', result.text)
+        self.assertNotIn('the ancient ruins', result.text)
+        self.assertNotIn('under a strange sky.', result.text)
+        self.assertIn('The main paragraph occupies', result.text)
+
+    def test_large_real_heading_over_artwork_with_prose_is_retained(self):
+        def draw(c):
+            picture(c, x=320, top=180, width=270, height=430)
+            prose(c)
+            text(c, ['A Real Section'], x=330, top=300, font='Helvetica-Bold', size=25)
+            text(c, ['These rules belong to the illustrated section.',
+                     'They must remain beside their heading.'], x=330, top=325)
+        result = self.convert(draw)
+        self.assertIn('A Real Section', result.text)
+        self.assertIn('These rules belong', result.text)
+
+    def test_large_four_line_overlay_is_not_partially_removed(self):
+        values=['First long overlaid line', 'Second long overlaid line',
+                'Third long overlaid line', 'Fourth long overlaid line']
+        def draw(c):
+            picture(c,x=320,top=180,width=270,height=430)
+            prose(c)
+            text(c,values,x=340,top=350,font='Helvetica-Oblique',size=25,
+                 color=colors.Color(.4,.5,.6),leading=20)
+        result=self.convert(draw)
+        for value in values:
+            self.assertIn(value,result.text)
+
+    def test_compact_four_line_caption_with_completed_sentence_is_removed_whole(self):
+        def draw(c):
+            picture(c,x=320,top=180,width=270,height=430)
+            prose(c)
+            text(c,['A traveller arrives','with a companion','at the old gates','before the sunset.'],
+                 x=340,top=350,font='Helvetica-Oblique',size=25,
+                 color=colors.Color(.4,.5,.6),leading=20)
+        result=self.convert(draw)
+        self.assertNotIn('A traveller arrives',result.text)
+        self.assertNotIn('before the sunset.',result.text)
+
+    def test_secondary_font_rules_above_art_are_not_deleted(self):
+        def draw(c):
+            prose(c)
+            picture(c, x=320, top=380, width=270, height=350)
+            text(c, ['When the ability improves, its effect grows.',
+                     'At four ranks you roll 2d10 damage instead.',
+                     'At five ranks or more you roll 2d12 damage.',
+                     'These values are part of the rules paragraph.'],
+                 x=330, top=330, font='Helvetica', size=9.5, leading=13)
+            label(c,['ACTUAL CAPTION'],x=350,top=490)
+        result=self.convert(draw)
+        for value in ('2d10 damage','2d12 damage','rules paragraph'):
+            self.assertIn(value,result.text)
+        self.assertNotIn('ACTUAL CAPTION',result.text)
+
     def test_page_background_is_not_a_figure(self):
         def draw(c):
             picture(c, x=0, top=0, width=612, height=792)
             prose(c)
             label(c, ["UNRELATED HEADING"])
         self.assertIn("UNRELATED HEADING", self.convert(draw).text)
+
+    def test_caption_style_is_learned_for_an_illustration_only_page(self):
+        def draw(c):
+            picture(c)
+            prose(c)
+            label(c,['ILLUSTRATION LABEL'],top=80)
+            c.showPage()
+            picture(c)
+            label(c,['SECOND PICTURE LABEL'],top=80)
+            text(c,['Real page title'],x=50,top=60,size=18,font='Times-Bold')
+        result=self.convert(draw)
+        self.assertNotIn('ILLUSTRATION LABEL',result.text)
+        self.assertNotIn('SECOND PICTURE LABEL',result.text)
+        self.assertIn('Real page title',result.text)
 
     def test_overlapping_art_does_not_mask_main_text(self):
         def draw(c):

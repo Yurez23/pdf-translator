@@ -43,10 +43,14 @@ def render(blocks: list[Block]) -> tuple[str, str]:
             md.append("> " + _escape(block.text))
             txt.append(block.text)
         elif block.kind == "list_item":
-            text = re.sub(r"^[•●▪◦‣*–]\s+", "- ", block.text)
+            text = re.sub(r"^[•●▪◦‣◆◇*–]\s+", "- ", block.text)
             # Keep ordered-list markers, escape only their payload.
             match = re.match(r"^([-]|\d+[.)]|[A-Za-z][.)]|\(\d+\))\s+(.*)", text)
-            md.append((match[1] + " " + _escape(match[2])) if match else "- " + _escape(text))
+            # Hanging speaker/record labels ending in a colon have no source
+            # bullet; retain their paragraphs without inventing list markers.
+            colon_label = not match and block.role == 'labelled_entry'
+            md.append((match[1] + " " + _escape(match[2])) if match else
+                      _paragraph(text) if colon_label else "- " + _escape(text))
             txt.append(block.text)
         else:
             md.append(_paragraph(block.text))

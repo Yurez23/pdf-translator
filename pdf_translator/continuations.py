@@ -44,7 +44,9 @@ def _continuation_start(previous: str, following: str) -> bool:
     # A quotation mark is not a sentence boundary. Capitalized continuations
     # still need an extra signal: closing a bracket left open on the prior page.
     start = following.lstrip("\"'‘“«")
-    return (start[:1].islower() or previous.endswith("-")
+    return (start[:1].islower() or previous.endswith(("-", ",", ";"))
+            or start.startswith("(")
+            or bool(re.search(r"\b(?:the|a|an|their|your|our|his|her|its|my|this|these|those)$",previous,re.I))
             or _closes_open_bracket(previous, following))
 
 
@@ -60,27 +62,39 @@ def _continuation_alignment(previous: Block, following: Block) -> bool:
     offset = first.bbox[0] - following.container_left
     if abs(offset) <= tolerance:
         return True
-    if previous.kind == "list_item" and len(previous.lines) > 1:
+    if (previous.kind == "list_item" or previous.lines[0].bold_start) and len(previous.lines) > 1:
         hanging = previous.lines[-1].bbox[0] - previous.container_left
         return hanging > previous.body_size * 0.5 and abs(offset - hanging) <= tolerance
     return False
 
 
-def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
+def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
+                        *, empty_pages: set[int] | None = None) -> list[Block]:
     result: list[Block] = []
+    diagram_titles = {id(a) for a,b in zip(blocks,blocks[1:])
+                      if a.role == 'aside_title' and b.role == 'diagram'}
     for block in blocks:
         # Marginal art credits must not break an otherwise clear page continuation.
-        prev = next((b for b in reversed(result) if b.role != "rotated" and b.kind != "footnote"), None)
+        prev = next((b for b in reversed(result) if b.role != "rotated" and b.kind != "footnote"
+                     and id(b) not in diagram_titles
+                     and not (b.kind == "aside" and (b.children or b.role == "quotation"))), None)
         if (prev and prev.kind in ("paragraph", "list_item") and block.kind == "paragraph"
                 and prev.lines and block.lines):
             a, b = prev.sources[-1], block.sources[0]
-            next_page = b.page == a.page + 1
+            next_page = (b.page > a.page and all(p in (empty_pages or set())
+                         for p in range(a.page+1,b.page)))
             next_column = (a.page == b.page and prev.container_left is not None and block.container_left is not None
                            and block.container_left > prev.container_left + prev.body_size * 4)
             last = prev.lines[-1]
             first = block.lines[0]
             full_line = last.bbox[2] - a.bbox[0] >= prev.container_width * 0.75
-            if ((next_page or next_column) and not _terminal(prev.text) and (full_line or prev.text.endswith("-"))
+            # Bottom-column lines can be short because the next physical
+            # column begins under artwork. A visible lowercase start, matching
+            # face/alignment and an unfinished multi-line paragraph are needed
+            # before accepting this weaker fullness signal.
+            short_wrap = (next_column and len(prev.lines)>=2 and block.text[:1].islower()
+                          and last.bbox[2]-last.bbox[0] >= prev.container_width*.6)
+            if ((next_page or next_column) and not _terminal(prev.text) and (full_line or short_wrap or prev.text.endswith("-"))
                     and _continuation_start(prev.text, block.text) and _continuation_alignment(prev, block)
                     and abs(first.size - last.size) <= prev.body_size * 0.15
                     and _line_font(first) == _line_font(last)):
