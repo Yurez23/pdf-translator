@@ -192,7 +192,7 @@ TXT намеренно не кодирует иерархию заголовко
 | `aside_title` | `heading`, `level=0` | Заголовок рамочной вставки или отдельная вспомогательная подпись над курсивным эпиграфом. |
 | `complex_table` | `raw` | Текстовый fallback сложной таблицы. |
 | `rotated` | `raw` | Сохранённый неподдержанный повёрнутый текст. |
-| `graphic_label` | `raw` | Извлечённая надпись/глиф графического элемента, исключённые из иерархии; это не декодирование символа или восстановленная схема. |
+| `graphic_label` | `raw` | Извлечённая надпись/глиф графического элемента, исключённые из иерархии; проверенный игровой глиф может иметь метку PDF-01, но роль не означает восстановленную схему. |
 | `labelled_entry` | `list_item` | Висячая запись/реплика без исходного маркера: отдельный пункт для группировки, но экспорт без искусственного буллита. |
 | `formula` | `raw` | Отдельная текстовая формула без уровня заголовка. |
 | `quotation` | `aside` | Литературная цитата, при нескольких абзацах — с детьми. |
@@ -230,7 +230,7 @@ def leaf_blocks(blocks: Iterable[Block]) -> Iterator[Block]:
 | `message` | `str` | Человекочитаемое сообщение. |
 | `pages` | `tuple[int, ...]` | Затронутые физические номера страниц. |
 
-Текущие коды: `empty_page`, `unmapped_glyph`, `table_detection`,
+Текущие коды: `empty_page`, `unmapped_glyph`, `unknown_game_symbol`, `table_detection`,
 `ambiguous_hyphen`, `complex_table`, `rotated_text`, `heading_depth`, `graphic_text`,
 `diagram_layout`.
 Разбирать лучше `code`, не русский текст сообщения. Одинаковые тройки
@@ -291,8 +291,9 @@ result = convert_pdf("book.pdf", hyphen_resolver=keep_and_record)
 | Тип | Поля и вычисляемые свойства |
 | --- | --- |
 | `BBox` в `models` | Псевдоним кортежа четырёх `float`. |
-| `Word` в `models` | Обязательные `text`, `bbox`, `size`; `font=""`, `upright=True`, `angle=0.0`, `color=None`. Цвет — кортеж каналов, а не обязательный RGB. |
-| `Line` в `models` | Обязательные `words`, `bbox`, `size`; свойство `text` соединяет слова пробелами, `bold_start` проверяет шрифт первого слова. |
+| `Word` в `models` | Обязательные `text`, `bbox`, `size`; `font=""`, `upright=True`, `angle=0.0`, `color=None`, `glyphs=()`. Прежние позиционные аргументы сохранены. Цвет — кортеж каналов, а не обязательный RGB; `source_length` считает исходную длину глифов вместо длины раскрытых меток. |
+| `Glyph` в `models` | Исходные `text`, `font`, `bbox`; `cid=None`, `font_sha256=""`, `symbol=""`, `origin="text"`, `glyph_name=""`. Имя глифа берётся из Encoding отдельно от ToUnicode. Для вектора `origin="vector"`, CID отсутствует, bbox — настоящий контур; базовая линия слова берётся у соседнего текста. Хеш вычисляется только для шрифта-кандидата. Это provenance модели, не данные для логирования. |
+| `Line` в `models` | Обязательные `words`, `bbox`, `size`; `text` соединяет слова пробелами, `bold_start` проверяет шрифт первого слова. `source_length` исключает раздувание длины раскрытыми метками; `text_without_symbols` нужен для поля с двоеточием перед знаком; `text_left` сохраняет выравнивание названия без ведущего знака. |
 | `TableData` в `page_data` | `bbox`, `rows` (`list[list[str \| None]]`); `None` важен для сложной структуры. `repaired_gaps=False` отмечает осторожно восстановленный текст зазора и сохраняет raw-предупреждение. |
 | `PageData` в `page_data` | Обязательные `number`, `width`, `height`, `words`, `body_size`; списки `tables`, `frames`, `separators`, `dropcaps`, `images`, `diagram_boxes` и множество подтверждённых `caption_styles`. Рамки/буквицы/изображения/карточки — BBox, разделители — вертикальные координаты; новые коллекции по умолчанию пусты. |
 | `HeadingStyle` в `headings` | Frozen dataclass: обязательные `size`, `font`, `color`; нужен для сравнения оформления и назначения уровней. |

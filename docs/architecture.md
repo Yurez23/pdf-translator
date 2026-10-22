@@ -50,7 +50,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/__main__.py](../pdf_translator/__main__.py) | Запуск `python -m pdf_translator`; передаёт управление `cli.main()` и возвращает его код завершения. |
 | [pdf_translator/cli.py](../pdf_translator/cli.py) | `main`: аргументы, UTF-8 терминала, выбор режима переносов, предупреждения и ошибки. `_prompt_hyphen` / `_read_choice`: ответы пользователя. `_write_outputs`: защита от перезаписи, подготовка и запись MD/TXT. |
 | [pdf_translator/converter.py](../pdf_translator/converter.py) | `convert_pdf`: координация чтения, очистки, вёрстки, заголовков, продолжений и возврат результата в памяти. |
-| [pdf_translator/models.py](../pdf_translator/models.py) | Общие структуры: `Word`, `Line`, `Block`, `SourceRegion`, результат, предупреждения и вопрос о переносе; типы `BBox`, `BlockKind`, `HyphenResolver`. `union_bbox` объединяет геометрию. |
+| [pdf_translator/models.py](../pdf_translator/models.py) | Общие структуры: `Glyph`, `Word`, `Line`, `Block`, `SourceRegion`, результат, предупреждения и вопрос о переносе; типы `BBox`, `BlockKind`, `HyphenResolver`. `union_bbox` объединяет геометрию. |
 | [pdf_translator/layout.py](../pdf_translator/layout.py) | `layout_page`, `_blocks_for_lines`: внутристранничные блоки, колонки, списки, таблицы и вставки; без чтения PDF или межстраничной склейки. |
 | [pdf_translator/captions.py](../pdf_translator/captions.py) | `remove_figure_captions`: исключение коротких обособленных подписей по оформлению и соседству с изображением. Защищает основной текст, таблицы, их названия и рамочные вставки. |
 | [pdf_translator/headings.py](../pdf_translator/headings.py) | `graphic_label`, `HeadingStyle`, `assign_heading_levels`: исключение графических надписей, ранжирование размеров по всему документу, вспомогательные названия таблиц/эпиграфов и метки над крупным заголовком. |
@@ -62,6 +62,10 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/page_data.py](../pdf_translator/page_data.py) | Нейтральные `PageData` / `TableData`, без зависимости от движка вёрстки. |
 | [pdf_translator/page_selection.py](../pdf_translator/page_selection.py) | Разбор физических 1-based диапазонов и последовательностей страниц. |
 | [pdf_translator/pdf_reader.py](../pdf_translator/pdf_reader.py) | Владение PDF-ресурсами, `_read_page`, объекты pdfplumber, закрытие страниц и перевод ошибок чтения. |
+| [pdf_translator/pdf_symbols.py](../pdf_translator/pdf_symbols.py) | PDF-адаптер: отдельный device/resource wrapper для CID/Encoding, программа шрифта, исходные глифы и вставка меток до извлечения слов и ячеек; без глобальных monkeypatch. |
+| [pdf_translator/symbols.py](../pdf_translator/symbols.py) | Нейтральные идентичности и общая нотация MD/TXT, проверенные контракты семейства/программы/CID/Unicode/имени глифа. |
+| [pdf_translator/symbol_geometry.py](../pdf_translator/symbol_geometry.py) | Нейтральное сравнение полных векторных контуров, частей и пропорций; отдельный неизвестный результат при достаточно характерном конфликте. |
+| [pdf_translator/symbol_signatures.py](../pdf_translator/symbol_signatures.py) | Изолированные нормализованные сигнатуры с доказательствами в документации; без условий по странице, названию или прозе. |
 | [pdf_translator/geometry.py](../pdf_translator/geometry.py) | `contains`, `body_size`, `group_lines`: общие координаты и строки. |
 | [pdf_translator/paragraphs.py](../pdf_translator/paragraphs.py) | Типографические правила вводных/висячих пунктов, продолжения жирной фразы, отступа новой первой строки и границы авторского курсива; без PDF SDK и I/O. |
 | [pdf_translator/diagrams.py](../pdf_translator/diagrams.py) | Узкий геометрический детектор раздельных карточек: белые панели, повторяемые ширины, настоящие промежутки и корневые узлы; без интерпретации стрелок. |
@@ -124,6 +128,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_book_recovery.py](../tests/test_book_recovery.py) | Межглавные регрессии: швы колонок/страниц, отступы, поля, цитаты, буквицы, overprint-пробелы и потерянные ячейки. |
 | [tests/test_diagrams.py](../tests/test_diagrams.py) | Положительные/отрицательные сетки карточек, отдельные владельцы текста и независимые локальные проверки карточек по исходным координатам. |
 | [tests/test_table_recovery.py](../tests/test_table_recovery.py) | Окрашенные таблицы, статблоки, сохранность ячеек и отрицательные примеры без привязки к именам книги; необязательные локальные регрессии. |
+| [tests/test_symbols.py](../tests/test_symbols.py) | PDF-01: шрифты/CID/Encoding, неизвестные знаки, контуры, коллизии, provenance, пунктуация, повторы, поля/таблицы/вставки, MD/TXT, безопасные логи и локальные визуально подтверждённые регрессии. |
 | [tests/test_captions.py](../tests/test_captions.py) | `CaptionTests`: подписи у изображений, стили и цвета, фоновые изображения и защита полезных коротких текстов. |
 | [tests/test_headings.py](../tests/test_headings.py) | `DocumentHeadingTests`, `HeadingStyleTests`: уровни по документу, допуски размеров, выбор страниц, вспомогательные названия, предел H6, отсутствие лишних вопросов. |
 | [tests/test_asides.py](../tests/test_asides.py) | `AsideLayoutTests`, `AsideExportTests`: одна рамка — один контейнер, заголовки/абзацы/списки внутри, экспорт без дублирования. |
@@ -157,6 +162,7 @@ CLI: __main__ / console script → cli.main
 | [docs/architecture.md](architecture.md) | Этот документ: карта файлов, зависимости и места изменения. |
 | [docs/usage.md](usage.md) | Установка, CLI, выбор страниц, переносы, файлы и коды завершения. |
 | [docs/processing.md](processing.md) | Этапы и эвристики восстановления структуры. |
+| [docs/symbols.md](symbols.md) | PDF-01: нотация, исходные легенды, контракты шрифтов/Encoding, векторные сигнатуры, происхождение данных и пределы. |
 | [docs/api.md](api.md) | Публичный API, модели, координаты, callback и экспорт. |
 | [docs/translation.md](translation.md) | Gemini: подготовка ключа/Free Tier, все параметры, API, сохранение структуры, журнал, ограничения и проверки. |
 | [docs/solid.md](solid.md) | Результат SOLID-ревизии, владение состоянием/ресурсами, изменения API и совместимость. |

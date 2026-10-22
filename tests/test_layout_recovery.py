@@ -191,7 +191,8 @@ class IntroductionRegressionTests(unittest.TestCase):
         self.assertIn('now! It contains', b.text)
 
     def test_paragraphs_are_not_split_at_wrapped_bold_or_inline_graphics(self):
-        for phrase in ('raising the stakes. When the stakes', 'called one-shots.', 'If you roll an or symbol,'):
+        for phrase in ('raising the stakes. When the stakes', 'called one-shots.',
+                       'If you roll an [opportunity] or [complication] symbol,'):
             with self.subTest(phrase=phrase):
                 self.assertTrue(any(phrase in b.text for b in self.result.blocks))
 

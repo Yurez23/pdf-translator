@@ -11,8 +11,8 @@ def bold(word) -> bool:
 
 
 def italic(line: Line) -> bool:
-    total = sum(len(w.text) for w in line.words)
-    marked = sum(len(w.text) for w in line.words if any(
+    total = sum(w.source_length for w in line.words)
+    marked = sum(w.source_length for w in line.words if any(
         part in w.font.lower() for part in ("italic", "oblique")))
     # A roman emphasized word inside an italic quotation does not end it.
     return bool(total) and marked >= total * .8

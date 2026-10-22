@@ -15,7 +15,7 @@ def body_size(words: list[Word]) -> float:
     sizes: Counter[float] = Counter()
     for word in words:
         if word.upright:
-            sizes[round(word.size, 1)] += len(word.text)
+            sizes[round(word.size, 1)] += word.source_length
     return sizes.most_common(1)[0][0] if sizes else 10.0
 
 
@@ -59,6 +59,6 @@ def group_lines(words: list[Word], size: float, *, split_gaps: bool = False) -> 
         for group in groups:
             weights = Counter()
             for word in group:
-                weights[round(word.size, 1)] += len(word.text)
+                weights[round(word.size, 1)] += word.source_length
             lines.append(Line(group, union_bbox([w.bbox for w in group]), weights.most_common(1)[0][0]))
     return sorted(lines, key=lambda line: (line.bbox[1], line.bbox[0]))

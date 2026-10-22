@@ -1,7 +1,8 @@
 """Offline card-panel regressions, independent of the optional local books.
 
-Only text containment is required: connectors, action icons and graph topology
-are deliberately outside these tests' contract. Run with standard unittest.
+Text containment includes preservation of ordinary glyphs around recovered
+symbols. Symbol semantics have their own tests; connectors/topology remain out
+of scope. Run with standard unittest.
 """
 
 from collections import Counter
@@ -442,13 +443,18 @@ class OptionalLocalCardRegressionTests(unittest.TestCase):
                     self.assertEqual(canonical(child.text),
                                      canonical("\n".join(line.text for line in child.lines)),
                                      "Converted child text must agree with its retained source lines")
-                # Filter graphical-font words from output independently too.
+                # Retained per-glyph provenance removes ONLY recovered symbols
+                # and the same source graphical-font chars as the oracle.
+                # Never drop a whole mixed-font word or arbitrary punctuation.
+                def ordinary_text(word):
+                    return "".join(g.text for g in word.glyphs if not g.symbol and not any(
+                        tag in g.font.lower() for tag in ("dingbat", "symbol", "icon")))
                 ordinary = [w for child in owner_leaves for line in child.lines for w in line.words
-                            if not any(tag in w.font.lower() for tag in ("dingbat", "symbol", "icon"))]
+                            if ordinary_text(w)]
                 self.assertTrue(ordinary, "A diagram card must retain ordinary text children")
                 ordinary_ids = {id(w) for w in ordinary}
                 actual = canonical("\n".join(
-                    " ".join(w.text for w in line.words if id(w) in ordinary_ids)
+                    " ".join(ordinary_text(w) for w in line.words if id(w) in ordinary_ids)
                     for child in owner_leaves for line in child.lines))
                 self.assertEqual(actual, source_text)
                 self.assertEqual(Counter(re.findall(r"\d+", actual)),

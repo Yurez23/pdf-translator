@@ -39,6 +39,20 @@ type HyphenResolver = Callable[[HyphenationIssue], bool]
 
 
 @dataclass
+class Glyph:
+    """Original character or detected vector, before semantic text expansion."""
+
+    text: str
+    font: str
+    bbox: BBox
+    cid: int | None = None
+    font_sha256: str = ""
+    symbol: str = ""
+    origin: str = "text"
+    glyph_name: str = ""
+
+
+@dataclass
 class Word:
     text: str
     bbox: BBox
@@ -47,6 +61,11 @@ class Word:
     upright: bool = True
     angle: float = 0.0
     color: tuple[float, ...] | None = None
+    glyphs: tuple[Glyph, ...] = field(default_factory=tuple)
+
+    @property
+    def source_length(self) -> int:
+        return sum(max(1, len(g.text)) for g in self.glyphs) if self.glyphs else len(self.text)
 
 
 @dataclass
@@ -58,6 +77,22 @@ class Line:
     @property
     def text(self) -> str:
         return " ".join(word.text for word in self.words)
+
+    @property
+    def source_length(self) -> int:
+        return sum(w.source_length for w in self.words) + max(0, len(self.words)-1)
+
+    @property
+    def text_without_symbols(self) -> str:
+        return " ".join("".join(g.text for g in w.glyphs if not g.symbol)
+                        if any(g.symbol for g in w.glyphs) else w.text for w in self.words).strip()
+
+    @property
+    def text_left(self) -> float:
+        """Text alignment without an added leading semantic icon."""
+        positions = [g.bbox[0] for w in self.words for g in w.glyphs if not g.symbol and g.text.strip()]
+        positions.extend(w.bbox[0] for w in self.words if not w.glyphs)
+        return min(positions, default=self.bbox[0])
 
     @property
     def bold_start(self) -> bool:

@@ -14,6 +14,7 @@ from .diagrams import card_panels
 from .geometry import body_size, contains
 from .page_data import PageData, TableData
 from .page_selection import parse_pages
+from .pdf_symbols import glyph_page, glyph_provenance, recover_symbols
 from .preprocessing import integrate_dropcaps, remove_marginal_credits
 from .table_recovery import recover_painted_tables
 from .models import BBox, ConversionError, ConversionWarning, Word
@@ -94,7 +95,9 @@ def _overprinted_spaces(chars) -> set[int]:
 
 
 def _read_page(page, warn) -> PageData:
+    page = glyph_page(page)
     clean = page.dedupe_chars(tolerance=0.5, extra_attrs=("fontname", "size"))
+    clean = recover_symbols(clean, warn)
     ignored_spaces = _overprinted_spaces(clean.chars)
     if ignored_spaces:
         clean = clean.filter(lambda obj: id(obj) not in ignored_spaces)
@@ -110,7 +113,8 @@ def _read_page(page, warn) -> PageData:
             angle = angles.most_common(1)[0][0] if angles else 0
             colors = Counter(_text_color(c.get("non_stroking_color")) for c in chars)
             color = colors.most_common(1)[0][0] if colors else None
-            words.append(Word(text, (item["x0"], item["top"], item["x1"], item["bottom"]), size, font, item.get("upright", True), angle, color))
+            words.append(Word(text, (item["x0"], item["top"], item["x1"], item["bottom"]), size, font, item.get("upright", True), angle, color,
+                              tuple(glyph_provenance(c) for c in chars)))
     data = PageData(page.page_number, page.width, page.height, words, body_size(words))
     data.images = [(im["x0"], im["top"], im["x1"], im["bottom"]) for im in page.images if not im.get("imagemask")]
     with span("conversion.credits_filter"):
@@ -123,7 +127,7 @@ def _read_page(page, warn) -> PageData:
         warn(ConversionWarning("unmapped_glyph", "В текстовом слое есть символы без корректной кодировки; проверьте страницу.", (page.page_number,)))
     data.diagram_boxes = card_panels(data, list(page.rects)+list(page.curves))
     if data.diagram_boxes:
-        warn(ConversionWarning("diagram_layout", "Карточки схемы сохранены отдельными блоками; графические связи и значки не восстановлены.", (page.page_number,)))
+        warn(ConversionWarning("diagram_layout", "Карточки схемы сохранены отдельными блоками; графические связи не восстановлены. Поддерживаемые значки сохранены текстом.", (page.page_number,)))
     try:
         for table in clean.find_tables():
             # Connector lines through a card grid are not table ruling. They

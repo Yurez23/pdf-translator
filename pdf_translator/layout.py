@@ -66,14 +66,14 @@ def _blocks_for_lines(
     if not normal:
         sizes = Counter()
         for row in lines:
-            sizes[round(row.size,1)] += len(row.text)
+            sizes[round(row.size,1)] += row.source_length
         local_size = sizes.most_common(1)[0][0]
         normal = [row for row in lines if abs(row.size-local_size)<=.5]
     anchor = min((line.bbox[0] for line in normal), default=bounds[0])
     right = max((line.bbox[2] for line in normal), default=bounds[2])
     field_lines = set()
     for i, row in enumerate(lines):
-        if row.size <= body * 1.15 and row.text.endswith(":") and row.bold_start:
+        if row.size <= body * 1.15 and row.text_without_symbols.endswith(":") and row.bold_start:
             field_lines.add(id(row))
             # A wrapped labelled field followed by an empty bold field is a
             # record, not a new bullet (and not a dialogue speaker exchange).
@@ -109,10 +109,10 @@ def _blocks_for_lines(
                                 lines=[line], body_size=body, role="graphic_label"))
             warn(ConversionWarning("graphic_text", "Текст графического элемента сохранён отдельно; проверьте его смысл и структуру.", (page.number,)))
             continue
-        is_heading = line.size >= body * 1.18 and len(text) <= 180 and not italic(line)
+        is_heading = line.size >= body * 1.18 and line.source_length <= 180 and not italic(line)
         # Bold, short standalone labels are headings; bold lead-ins in prose are not.
         all_bold = all(any(s in w.font.lower() for s in ("bold", "demi", "black")) for w in line.words)
-        if all_bold and len(text) < 80 and not _terminal(text) and not is_list(text):
+        if all_bold and line.source_length < 80 and not _terminal(text) and not is_list(text):
             is_heading = True
         if id(line) in field_lines:
             is_heading = False
@@ -129,7 +129,7 @@ def _blocks_for_lines(
             if (prev_heading and prev_heading.kind == "heading" and prev_heading.level == level
                     and prev_heading.lines and abs(prev_heading.lines[-1].size - line.size) < 0.5
                     and 0 <= line.bbox[1] - prev_heading.lines[-1].bbox[3] <= body * 0.45
-                    and abs(line.bbox[0] - prev_heading.lines[-1].bbox[0]) < body):
+                    and abs(line.text_left - prev_heading.lines[-1].text_left) < body):
                 prev_heading.text += " " + text.replace("\u00ad", "")
                 prev_heading.lines.append(line)
                 prev_heading.sources = (SourceRegion(page.number, union_bbox([prev_heading.sources[0].bbox, line.bbox])),)
@@ -179,7 +179,7 @@ def _blocks_for_lines(
                             and (line.bbox[0] - prev.bbox[2] > body * 3 or prev.bbox[0] - line.bbox[2] > body * 3))
             boundary = (gap > body * 0.65 or is_list(text) or lead_in or footnote and kind != "footnote"
                         or id(line) in field_lines
-                        or id(prev) in field_lines and prev.text.endswith(":")
+                        or id(prev) in field_lines and prev.text_without_symbols.endswith(":")
                         or kind == "list_item" and first_line_indent
                         and (_terminal(prev.text) or prev.bbox[2] < right-body*3) and not prev.text.endswith("-")
                         or indent and kind != "footnote" and (kind != "list_item" or short_end)

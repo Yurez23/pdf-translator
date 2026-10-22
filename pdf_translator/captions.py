@@ -168,6 +168,11 @@ def remove_figure_captions(page: PageData, *, known_styles: set[tuple] | None = 
         complete_four = len(group)==4 and bool(re.search(r'[.!?…][”\'\"]*$',group[-1][0].text))
         if ((len(group) <= 3 or complete_four) and all(related for _, related in group)
                 and sum(len(line.text) for line, _ in group) <= 160):
-            ignored.update(id(w) for line, _ in group for w in line.words)
+            # Caption classification/style learning stays unchanged. Protect
+            # ONLY lines containing positively identified game glyphs (also
+            # explicit unknowns), including their adjacent ordinary words.
+            ignored.update(id(w) for line, _ in group
+                           if not any(g.symbol for w in line.words for g in w.glyphs)
+                           for w in line.words)
             page.caption_styles.update(_style(line.words) for line,_ in group)
     page.words = [w for w in page.words if id(w) not in ignored]

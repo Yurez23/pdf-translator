@@ -12,10 +12,11 @@ from .paragraphs import italic
 
 def graphic_label(line, body: float) -> bool:
     """Retain symbolic glyphs/spaced numeric diagram rows outside the outline."""
-    if line.words and all(len(w.text) == 1 and any(tag in w.font.lower() for tag in ("dingbat", "symbol", "icon"))
+    if line.words and all((len(w.text) == 1 or w.glyphs and all(g.symbol for g in w.glyphs)) and any(tag in w.font.lower() for tag in ("dingbat", "symbol", "icon"))
                           for w in line.words):
         return True
-    return (len(line.words) >= 2 and all(w.text.isdecimal() for w in line.words)
+    return (len(line.words) >= 2 and all(w.text.isdecimal() or w.glyphs and all(
+                g.symbol or g.text.isdecimal() for g in w.glyphs) for w in line.words)
             and line.size > body * 1.15
             and any(b.bbox[0] - a.bbox[2] > body * .8 for a, b in zip(line.words, line.words[1:])))
 
@@ -32,8 +33,8 @@ def _style(block: Block) -> HeadingStyle:
     fonts: Counter[str] = Counter()
     colors: Counter[tuple[float, ...] | None] = Counter()
     for word in line.words:
-        fonts[re.sub(r"^[A-Z]{6}\+", "", word.font)] += len(word.text)
-        colors[word.color] += len(word.text)
+        fonts[re.sub(r"^[A-Z]{6}\+", "", word.font)] += word.source_length
+        colors[word.color] += word.source_length
     return HeadingStyle(line.size, fonts.most_common(1)[0][0] if fonts else "",
                         colors.most_common(1)[0][0] if colors else None)
 
