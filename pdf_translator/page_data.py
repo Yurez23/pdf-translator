@@ -4,11 +4,34 @@ from dataclasses import dataclass, field
 from .models import BBox, Word
 
 
+@dataclass(frozen=True)
+class TableCell:
+    """One physical cell; covered slots are continuations, never empty cells."""
+
+    row: int
+    column: int
+    rowspan: int
+    colspan: int
+    text: str
+    bbox: BBox
+
+
+@dataclass(frozen=True)
+class TableStructure:
+    cells: tuple[TableCell, ...]
+    row_edges: tuple[float, ...]
+    column_edges: tuple[float, ...]
+    header_rows: int = 1
+    group_rows: tuple[int, ...] = ()
+
+
 @dataclass
 class TableData:
     bbox: BBox
     rows: list[list[str | None]]
     repaired_gaps: bool = False
+    cell_boxes: list[list[BBox | None]] = field(default_factory=list)
+    structure: TableStructure | None = None
 
 
 @dataclass

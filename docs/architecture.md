@@ -69,7 +69,8 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/geometry.py](../pdf_translator/geometry.py) | `contains`, `body_size`, `group_lines`: общие координаты и строки. |
 | [pdf_translator/paragraphs.py](../pdf_translator/paragraphs.py) | Типографические правила вводных/висячих пунктов, продолжения жирной фразы, отступа новой первой строки и границы авторского курсива; без PDF SDK и I/O. |
 | [pdf_translator/diagrams.py](../pdf_translator/diagrams.py) | Узкий геометрический детектор раздельных карточек: белые панели, повторяемые ширины, настоящие промежутки и корневые узлы; без интерпретации стрелок. |
-| [pdf_translator/table_recovery.py](../pdf_translator/table_recovery.py) | Восстановление окрашенных таблиц и групповых статблоков по нейтральным словам/геометрии, с защитой прежних ячеек от потери. |
+| [pdf_translator/table_recovery.py](../pdf_translator/table_recovery.py) | Восстановление окрашенных таблиц и групповых статблоков по словам/геометрии, с защитой прежних ячеек от потери; явные span и уровни шапки статблоков. |
+| [pdf_translator/table_structure.py](../pdf_translator/table_structure.py) | Нейтральная проверка полного покрытия сетки, владельцев слов/слотов, окрашенных шапок и групп; ремонт конфликтующей линейной геометрии, нормализация в прямоугольные секции. Без PDF SDK, I/O и угадывания по прозе. |
 | [pdf_translator/preprocessing.py](../pdf_translator/preprocessing.py) | Вертикальные имена, буквицы и повторяющиеся колонтитулы; прежний порядок эвристик. |
 | [pdf_translator/continuations.py](../pdf_translator/continuations.py) | Склейка продолжений между страницами/колонками и консервативные проверки шрифта, отступов и скобок. |
 | [pdf_translator/file_outputs.py](../pdf_translator/file_outputs.py) | Общая подготовка и публикация UTF-8-файлов; path/overwrite policy задаёт вызывающий сценарий. |
@@ -128,6 +129,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_book_recovery.py](../tests/test_book_recovery.py) | Межглавные регрессии: швы колонок/страниц, отступы, поля, цитаты, буквицы, overprint-пробелы и потерянные ячейки. |
 | [tests/test_diagrams.py](../tests/test_diagrams.py) | Положительные/отрицательные сетки карточек, отдельные владельцы текста и независимые локальные проверки карточек по исходным координатам. |
 | [tests/test_table_recovery.py](../tests/test_table_recovery.py) | Окрашенные таблицы, статблоки, сохранность ячеек и отрицательные примеры без привязки к именам книги; необязательные локальные регрессии. |
+| [tests/test_table_structure.py](../tests/test_table_structure.py) | PDF-02: реальные span/пустоты, составные шапки, групповые строки, ложная сетка, соседняя проза, конфликтующий fallback, символы и оба экспорта; необязательные регрессии всех заданных семейств. |
 | [tests/test_symbols.py](../tests/test_symbols.py) | PDF-01: шрифты/CID/Encoding, неизвестные знаки, контуры, коллизии, provenance, пунктуация, повторы, поля/таблицы/вставки, MD/TXT, безопасные логи и локальные визуально подтверждённые регрессии. |
 | [tests/test_captions.py](../tests/test_captions.py) | `CaptionTests`: подписи у изображений, стили и цвета, фоновые изображения и защита полезных коротких текстов. |
 | [tests/test_headings.py](../tests/test_headings.py) | `DocumentHeadingTests`, `HeadingStyleTests`: уровни по документу, допуски размеров, выбор страниц, вспомогательные названия, предел H6, отсутствие лишних вопросов. |

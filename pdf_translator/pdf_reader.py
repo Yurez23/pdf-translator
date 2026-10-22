@@ -17,6 +17,7 @@ from .page_selection import parse_pages
 from .pdf_symbols import glyph_page, glyph_provenance, recover_symbols
 from .preprocessing import integrate_dropcaps, remove_marginal_credits
 from .table_recovery import recover_painted_tables
+from .table_structure import CellPaint, recover_table_structure
 from .models import BBox, ConversionError, ConversionWarning, Word
 from .text import normalize
 from .telemetry import emit, span
@@ -140,13 +141,18 @@ def _read_page(page, warn) -> PageData:
             repaired = _repair_table_gaps(table, rows, words)
             if len(rows) >= 2 and max(map(len, rows), default=0) >= 2 and sum(bool(c and c.strip()) for row in rows for c in row) >= 4:
                 if not any(all(abs(a-b) < 2 for a,b in zip(table.bbox, t.bbox)) for t in data.tables):
-                    data.tables.append(TableData(table.bbox, rows, repaired))
+                    data.tables.append(TableData(table.bbox, rows, repaired,
+                                                 [list(row.cells) for row in table.rows]))
     except (ValueError, TypeError, IndexError) as exc:
         warn(ConversionWarning("table_detection", f"Не удалось разобрать таблицы ({type(exc).__name__}); текст сохранён обычными блоками.", (page.page_number,)))
     data.tables = [table for table in recover_painted_tables(clean,words,data.tables)
                    if not any(min(table.bbox[2],box[2]) > max(table.bbox[0],box[0])+1
                               and min(table.bbox[3],box[3]) > max(table.bbox[1],box[1])+1
                               for box in data.diagram_boxes)]
+    paints = [CellPaint((r["x0"], r["top"], r["x1"], r["bottom"]),
+                        _text_color(r.get("non_stroking_color")))
+              for r in clean.rects if r.get("fill")]
+    data.tables = [recover_table_structure(table, words, paints) for table in data.tables]
     # Filled boxes/curves frequently delimit sidebars; table cell fills do not.
     for shape in list(page.rects) + list(page.curves):
         if not shape.get("fill"):

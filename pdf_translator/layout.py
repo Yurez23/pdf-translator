@@ -219,16 +219,41 @@ def _blocks_for_lines(
 
 
 def _table_blocks(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
+    from .table_structure import normalized_sections
     result = []
     for table in page.tables:
+        if table.structure:
+            header_box = (table.structure.column_edges[0], table.structure.row_edges[0],
+                          table.structure.column_edges[-1], table.structure.row_edges[table.structure.header_rows])
+            for index, section in enumerate(normalized_sections(table.structure)):
+                if section.group_bbox is not None:
+                    result.append(Block("heading", join_lines(section.group.splitlines(), lexicon, page.number, warn, resolver),
+                                        (SourceRegion(page.number, section.group_bbox), SourceRegion(page.number, header_box)), role="table_group"))
+                rows = [[join_lines(cell.splitlines(), lexicon, page.number, warn, resolver)
+                         for cell in row] for row in section.rows]
+                box = union_bbox([header_box, section.bbox]) if index == 0 and not section.group else section.bbox
+                sources = (SourceRegion(page.number, box),)
+                if box == section.bbox:
+                    sources += (SourceRegion(page.number, header_box),)
+                result.append(Block("table", "", sources, rows=rows))
+            continue
+        complex_table = table.repaired_gaps or any(cell is None for row in table.rows for cell in row)
+        available = [word for word in page.words if contains(table.bbox, word)] if complex_table and table.cell_boxes else []
+        if available:
+            warn(ConversionWarning("complex_table", "Структура таблицы не подтверждена: доступный текст сохранён отдельным блоком; проверьте строки, столбцы и объединения.", (page.number,)))
+            # Conflicting cells can omit or repeat text. Preserve the available
+            # source words once, without asserting a grid or resolving line-end
+            # hyphens against an uncertain cell assignment.
+            text = " / ".join(line.text for line in group_lines(available, page.body_size))
+            result.append(Block("raw", text, (SourceRegion(page.number, table.bbox),), role="complex_table"))
+            continue
         rows = [[join_lines((cell or "").splitlines(), lexicon, page.number, warn, resolver) for cell in row] for row in table.rows]
         # Ruled book tables sometimes have an extra, entirely empty decorative column.
         keep = [i for i in range(max(map(len, rows), default=0)) if any(i < len(row) and row[i] for row in rows)]
         rows = [[row[i] if i < len(row) else "" for i in keep] for row in rows]
-        complex_table = table.repaired_gaps or any(cell is None for row in table.rows for cell in row)
         sources = (SourceRegion(page.number, table.bbox),)
         if complex_table:
-            warn(ConversionWarning("complex_table", "Таблица с объединёнными ячейками: текст сохранён отдельным блоком; проверьте структуру.", (page.number,)))
+            warn(ConversionWarning("complex_table", "Структура таблицы не подтверждена: доступный текст сохранён отдельным блоком; проверьте строки, столбцы и объединения.", (page.number,)))
             result.append(Block("raw", " / ".join(" | ".join(row) for row in rows), sources, role="complex_table"))
         else:
             result.append(Block("table", "", sources, rows=rows))

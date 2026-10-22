@@ -279,8 +279,10 @@ class LocalBookRegressionTests(unittest.TestCase):
         blocks=self.results[3].blocks
         i=next(i for i,b in enumerate(blocks) if b.text=='Heroic Paths at a Glance')
         self.assertEqual(blocks[i+1].kind,'table')
-        table=next(b for b in self.results[5].blocks if b.role=='complex_table' and b.sources[0].page==21)
-        self.assertIn('Failure',table.text)
+        table=next(b for b in self.results[5].blocks if b.kind=='table' and b.sources[0].page==21)
+        self.assertEqual(table.rows[0], ['Task', 'Test DC', 'Success', 'Failure', 'Opportunity', 'Complication'])
+        self.assertEqual(len(table.rows), 10)
+        self.assertTrue(all(len(row)==6 for row in table.rows))
 
     def test_sidebar_does_not_break_leadership_sentence(self):
         self.assertIn('right and wrong, you test Leadership.',self.results[5].text)

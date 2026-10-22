@@ -310,16 +310,17 @@ class GroupedGridTests(unittest.TestCase):
         self.assertEqual(result[0].rows[1:], [labels, values])
         self.assertEqual((page, words, existing), before)
 
-    def test_complex_grid_uses_existing_raw_warning_policy(self):
+    def test_confirmed_grid_exports_composite_headers_without_raw_fallback(self):
         from pdf_translator.layout import _table_blocks
         page, words, _, _ = grid_fixture()
         data = PageData(1, 612, 792, words, 9, tables=recover_painted_tables(page, words, []))
         warnings = []
         blocks = _table_blocks(data, set(), warnings.append)
-        self.assertEqual([b.kind for b in blocks], ["raw"])
-        self.assertEqual([w.code for w in warnings], ["complex_table"])
-        self.assertIn("North", blocks[0].text)
-        self.assertIn("South", blocks[0].text)
+        self.assertEqual([b.kind for b in blocks], ["table"])
+        self.assertEqual(warnings, [])
+        self.assertEqual(blocks[0].rows, [
+            [f"{group} / {label}" for group in ("North", "East", "South") for label in ("aa", "bb", "cc")],
+            [str(i) for i in range(1, 10)]])
 
     def test_no_outline_corroboration_is_insufficient(self):
         page, words, _, _ = grid_fixture()

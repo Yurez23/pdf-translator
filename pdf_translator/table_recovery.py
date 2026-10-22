@@ -14,7 +14,7 @@ Two narrowly evidenced layouts are supported:
   aligned cells and matching numerical evidence in at least half the columns.
 * A painted group-header strip above equally populated, aligned label/number
   rows, corroborated by repeated stroked cell outlines in every group. Group
-  spans use None, deliberately invoking the caller's complex/raw warning policy.
+  spans retain explicit physical cells and two header levels for normalization.
 
 This is not a general borderless-table detector. Missing/ambiguous cells,
 crossing text, rotation, long gaps, prose, and unsupported spans are declined.
@@ -30,7 +30,7 @@ from statistics import median
 
 from .geometry import contains, group_lines
 from .models import BBox, Word, union_bbox
-from .page_data import TableData
+from .page_data import TableCell, TableData, TableStructure
 
 _TOL = .75
 _NUMBER = re.compile(r"[+\-\u2212]?\d+(?:[.,]\d+)*\Z")
@@ -287,7 +287,16 @@ def _grouped_grid(strip: BBox, words: list[Word], shapes) -> TableData | None:
     spans: list[str | None] = [None]*count
     for i, header in enumerate(headers):
         spans[i*per_group] = header.text
-    return TableData(box, [spans, [w.text for w in labels], [w.text for w in values]])
+    middle = (lines[0].bbox[3]+lines[1].bbox[1])/2
+    edges = (strip[1], strip[3], middle, box[3])
+    cells = [TableCell(0, i*per_group, 1, per_group, header.text,
+                       (boundaries[i*per_group], strip[1], boundaries[(i+1)*per_group], strip[3]))
+             for i, header in enumerate(headers)]
+    cells.extend(TableCell(r, i, 1, 1, word.text,
+                           (boundaries[i], edges[r], boundaries[i+1], edges[r+1]))
+                 for r, row in ((1, labels), (2, values)) for i, word in enumerate(row))
+    return TableData(box, [spans, [w.text for w in labels], [w.text for w in values]],
+                     structure=TableStructure(tuple(cells), edges, tuple(boundaries), 2))
 
 
 def _tokens(table: TableData) -> Counter:
@@ -308,7 +317,7 @@ def recover_painted_tables(page, words: list[Word], existing_tables: list[TableD
     The page is read only for ``rects`` and ``curves``; no extraction, cropping,
     rendering, network or PDF mutations occur. A rejected candidate leaves words
     available to ordinary layout. Preserve the caller's diagram-region exclusion
-    and complex-table warning policy when integrating this result.
+    and conservative warning policy for unresolved structures when integrating.
     """
     rects = list(page.rects)
     shapes = [*rects, *getattr(page, "curves", ())]

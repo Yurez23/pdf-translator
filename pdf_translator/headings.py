@@ -49,7 +49,11 @@ def _same_style(a: HeadingStyle, b: HeadingStyle) -> bool:
 
 
 def _auxiliary_heading(block: Block, following: Block) -> str:
-    a, b = block.sources[-1], following.sources[0]
+    # A normalized table can begin with a scoped group label. Its secondary
+    # source is the original header; the label must not hide that table from
+    # title classification or introduce a new document-wide heading style.
+    a = block.sources[-1]
+    b = following.sources[-1] if following.role == "table_group" else following.sources[0]
     if a.page != b.page:
         return ""
     gap = b.bbox[1] - a.bbox[3]
@@ -61,7 +65,7 @@ def _auxiliary_heading(block: Block, following: Block) -> str:
         centered = abs((a.bbox[0] + a.bbox[2] - b.bbox[0] - b.bbox[2]) / 2) <= block.body_size * 2
         if centered and 0 <= gap <= block.body_size * 1.5:
             return "aside_title"
-    if following.kind == "table" or following.kind == "raw" and following.role == "complex_table":
+    if following.kind == "table" or following.role in ("complex_table", "table_group"):
         if 0 <= gap <= block.body_size * 1.5 and overlap >= width * 0.75:
             return "table_title"
     # A short centered kicker directly above a larger title is a label, not a

@@ -386,6 +386,7 @@ class DiagnosticAndArchitectureTests(LocalCase):
             "translation/chunking.py": {"document", "gemini", "storage"},
             "models.py": {"layout", "pdfplumber", "pdf_reader"},
             "page_data.py": {"layout", "pdfplumber", "pdf_reader"},
+            "table_structure.py": {"layout", "export", "pdfplumber", "pdf_reader", "translation"},
             "captions.py": {"layout", "pdf_reader"},
             "telemetry.py": {"translation", "models", "storage", "gemini", "jsonl"},
         }
