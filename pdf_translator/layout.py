@@ -3,6 +3,7 @@
 import math
 import re
 from collections import Counter
+from dataclasses import replace
 
 from .geometry import contains, group_lines
 from .continuations import merge_continuations
@@ -10,9 +11,10 @@ from .headings import graphic_label
 from .paragraphs import (lead_in as _lead_in, hanging_entry, bold_continuation,
                          italic, returns_left, style_boundary, hanging_run)
 from .page_data import PageData
+from .forms import encloses, overlaps
 from .models import BBox, Block, ConversionWarning, HyphenResolver, Line, SourceRegion, Word, union_bbox
 from .text import is_list, join_lines, normalize, terminal as _terminal
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 type Warn = Callable[[ConversionWarning], None]
 
@@ -103,7 +105,7 @@ def _blocks_for_lines(
         text = normalize(line.text)
         if not text:
             continue
-        if graphic_label(line, body):
+        if not page.form_regions and graphic_label(line, body):
             flush()
             result.append(Block("raw", text, (SourceRegion(page.number, line.bbox),),
                                 lines=[line], body_size=body, role="graphic_label"))
@@ -274,7 +276,8 @@ def _ordered_region(lines: list[Line], specials: list[Block], page: PageData, bo
     return result
 
 
-def layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
+def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
+                 special_blocks: Sequence[Block] = ()) -> list[Block]:
     upright = [w for w in page.words if w.upright]
     rotated = [w for w in page.words if not w.upright]
     table_blocks = _table_blocks(page, lexicon, warn, resolver)
@@ -313,7 +316,7 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenR
                                    lines=[line for child in children for line in child.lines],
                                    body_size=page.body_size, container_width=frame[2] - frame[0],
                                    container_left=frame[0], role="diagram_node" if frame in page.diagram_boxes else ""))
-    specials = [b for b in table_blocks if id(b) not in owned_tables] + framed_blocks
+    specials = [b for b in table_blocks if id(b) not in owned_tables] + framed_blocks + list(special_blocks)
     if page.diagram_boxes:
         region = union_bbox(page.diagram_boxes)
         diagram_parts = [b for b in specials if encloses(region,b.sources[0].bbox)]
@@ -423,3 +426,125 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenR
         text = join_lines((line.text for line in group_lines(rotated, page.body_size)), lexicon, page.number, warn, resolver)
         ordered.append(Block("raw", text, (SourceRegion(page.number, union_bbox([w.bbox for w in rotated])),), role="rotated"))
     return ordered
+
+
+def _flat_text(block: Block) -> str:
+    if block.children:
+        return " ".join(_flat_text(child) for child in block.children)
+    if block.kind == "table":
+        return " ".join(cell for row in block.rows for cell in row)
+    return block.text
+
+
+def _form_headings(blocks: list[Block]) -> None:
+    for block in blocks:
+        if block.kind == "heading":
+            block.level = 0
+            if block.role not in ("table_title", "table_group"):
+                # Large handwritten values/numbers are field content. Printed
+                # bold panel labels may remain auxiliary internal titles.
+                if block.lines and all(any(tag in w.font.lower() for tag in ("bold","demi","black"))
+                                       for line in block.lines for w in line.words) and any(c.isalpha() for c in block.text):
+                    block.role = "aside_title"
+                else:
+                    block.kind, block.role = "paragraph", ""
+        _form_headings(block.children)
+
+
+def _loose_form_blocks(page: PageData, lexicon: set[str], warn: Warn,
+                       resolver: HyphenResolver | None) -> list[Block]:
+    """Keep loose aligned labels with unboxed numeric values when unambiguous."""
+    lines = group_lines(page.words,page.body_size,split_gaps=True)
+    labels = [line for line in lines if len(line.words) <= 6 and line.source_length <= 60
+              and any(c.isalpha() for c in line.text)]
+    values = [line for line in lines if line.text.isdecimal()]
+    def distance(label, value):
+        aligned = abs((label.bbox[0]+label.bbox[2]-value.bbox[0]-value.bbox[2])/2) <= page.body_size*.6
+        gap = max(label.bbox[1]-value.bbox[3],value.bbox[1]-label.bbox[3],0)
+        return gap if aligned and gap <= page.body_size*3 else float("inf")
+    paired = set()
+    blocks = []
+    for value in values:
+        ranked = sorted((distance(label,value),i,label) for i,label in enumerate(labels))
+        if not ranked or ranked[0][0] == float("inf") or len(ranked)>1 and ranked[0][0]==ranked[1][0]:
+            continue
+        _,_,label = ranked[0]
+        if id(label) in paired or any(distance(label,other) <= distance(label,value)
+                                     for other in values if other is not value):
+            continue
+        paired.update((id(label),id(value)))
+        box = union_bbox([label.bbox,value.bbox])
+        blocks.append(Block("paragraph",join_lines([label.text,value.text],lexicon,page.number,warn,resolver),
+                            (SourceRegion(page.number,box),),lines=[label,value],body_size=page.body_size))
+    for line in lines:
+        if id(line) not in paired:
+            blocks.extend(_blocks_for_lines([line],page,line.bbox,lexicon,warn,resolver))
+    return blocks
+
+
+def layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
+    if not page.form_regions:
+        return _layout_page(page, lexicon, warn, resolver)
+    forms = []
+    claimed_words: set[int] = set()
+    claimed_tables: set[int] = set()
+    claimed_frames: set[BBox] = set()
+    for form in page.form_regions:
+        # A table crossing the region boundary cannot be split or swallowed.
+        if any(overlaps(t.bbox,form.bbox) and not encloses(form.bbox,t.bbox) for t in page.tables):
+            continue
+        boxes = (form.bbox, *form.attachments)
+        inside = [w for w in page.words if any(contains(box,w) for box in boxes)]
+        tables = [t for t in page.tables if encloses(form.bbox,t.bbox)]
+        frames = [box for box in page.frames if encloses(form.bbox,box)]
+        inner = replace(page, words=inside, tables=tables, frames=frames, form_regions=[form], diagram_boxes=[])
+        # Tables are built once and remain atomic. Their words never enter a
+        # field or leftover prose, even when several field outlines overlap it.
+        table_blocks = _table_blocks(inner,lexicon,warn,resolver)
+        remaining = [w for w in inside if not any(contains(t.bbox,w) for t in tables)]
+        groups = [(b.sources[0].bbox,[b]) for b in table_blocks]
+        used_frames = set()
+        for field in form.fields:
+            if any(overlaps(field,t.bbox) for t in tables):
+                continue
+            words = [w for w in remaining if contains(field,w)]
+            # A small value box can have its printed label immediately to its
+            # right. Only claim the same-height short run before the next box.
+            if field[2]-field[0] <= page.body_size*4 and field[3]-field[1] <= page.body_size*4:
+                right = min((b[0] for b in form.fields if b[0] > field[2]
+                             and min(b[3],field[3]) > max(b[1],field[1])), default=form.bbox[2])
+                adjacent = [w for w in remaining if field[2] <= w.bbox[0] < right
+                            and field[1] <= (w.bbox[1]+w.bbox[3])/2 <= field[3]
+                            and not any(contains(b,w) for b in form.fields)]
+                if (adjacent and min(w.bbox[0] for w in adjacent)-field[2] <= page.body_size
+                        and len(adjacent) <= 6 and sum(w.source_length for w in adjacent) <= 60):
+                    words += adjacent
+            if not words:
+                continue
+            local_frames = [b for b in frames if encloses(field,b,max(1.25,page.body_size*.25))]
+            part = replace(inner, words=words, tables=[], frames=local_frames, images=[])
+            children = _layout_page(part,lexicon,warn,resolver)
+            groups.append((field,children))
+            used = {id(w) for w in words}
+            remaining = [w for w in remaining if id(w) not in used]
+            used_frames.update(local_frames)
+        rest = replace(inner, words=remaining, tables=[], frames=[b for b in frames if b not in used_frames], images=[])
+        # Remaining loose labels must not establish a fictitious two-column
+        # prose flow across a three-column field grid.
+        leftovers = (_layout_page(rest,lexicon,warn,resolver) if rest.frames else
+                     _loose_form_blocks(rest,lexicon,warn,resolver))
+        for child in leftovers:
+            groups.append((child.sources[0].bbox,[child]))
+        groups.sort(key=lambda item:(round(item[0][1]/page.body_size),item[0][0]))
+        children = [child for _,group in groups for child in group]
+        _form_headings(children)
+        forms.append(Block("aside", " ".join(_flat_text(child) for child in children),
+                           tuple(SourceRegion(page.number,box) for box in boxes), children=children,
+                           body_size=page.body_size, role="form_insert"))
+        claimed_words.update(id(w) for w in inside)
+        claimed_tables.update(id(t) for t in tables)
+        claimed_frames.update(frames)
+    outside = replace(page, words=[w for w in page.words if id(w) not in claimed_words],
+                      tables=[t for t in page.tables if id(t) not in claimed_tables],
+                      frames=[b for b in page.frames if b not in claimed_frames], form_regions=[])
+    return _layout_page(outside,lexicon,warn,resolver,forms)

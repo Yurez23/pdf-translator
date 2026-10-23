@@ -29,7 +29,8 @@ def _style(words: list[Word]) -> tuple[str, tuple[float, ...] | None]:
 
 
 def _inside_protected(line: Line, page: PageData) -> bool:
-    protected = [table.bbox for table in page.tables] + page.frames
+    protected = ([table.bbox for table in page.tables] + page.frames
+                 + [box for form in page.form_regions for box in (form.bbox, *form.attachments)])
     if any(any(contains(box, word) for word in line.words) for box in protected):
         return True
     if any(0 <= box[1]-line.bbox[3] <= page.body_size*2.5

@@ -68,7 +68,11 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
     blocks = [block for block in document_blocks if block.sources[0].page in selected_pages]
     with span("conversion.continuations"):
         empty_pages = {page.number for page in extracted if page.number in selected_pages and not page.words}
-        blocks = merge_continuations(blocks, lexicon, warn, hyphen_resolver, empty_pages=empty_pages)
+        insert_pages = {number for number in selected_pages
+                        if any(b.sources[0].page == number for b in blocks)
+                        and all(b.role == "form_insert" for b in blocks if b.sources[0].page == number)}
+        blocks = merge_continuations(blocks, lexicon, warn, hyphen_resolver, empty_pages=empty_pages,
+                                     selected_pages=selected_pages, insert_pages=insert_pages)
     with span("conversion.render"):
         markdown, text = render(blocks)
     if not text.strip():

@@ -6,6 +6,7 @@ from .geometry import group_lines
 from .page_data import PageData
 from .models import Line, Word, union_bbox
 from .text import normalize
+from .forms import protected
 
 
 def remove_marginal_credits(page: PageData) -> None:
@@ -21,6 +22,8 @@ def remove_marginal_credits(page: PageData) -> None:
     left, right = min(w.bbox[0] for w in body), max(w.bbox[2] for w in body)
     candidates = []
     for word in page.words:
+        if protected(word, page):
+            continue
         vertical = not word.upright and min(abs(word.angle-90), abs(word.angle-270)) <= 2
         outside = (word.bbox[2] <= page.width * 0.08 and word.bbox[2] < left - page.body_size * 0.5
                    or word.bbox[0] >= page.width * 0.92 and word.bbox[0] > right + page.body_size * 0.5)
@@ -52,6 +55,8 @@ def remove_marginal_credits(page: PageData) -> None:
 def integrate_dropcaps(page: PageData) -> None:
     """A large initial may share several lines, but belongs to the first word."""
     for cap in list(page.words):
+        if protected(cap, page):
+            continue
         if not (cap.upright and len(cap.text) == 1 and cap.text.isalpha() and cap.size >= page.body_size * 2.5):
             continue
         candidates = [w for w in page.words if w is not cap and w.upright and w.text[:1].isalpha()
@@ -75,6 +80,8 @@ def remove_running_margins(pages: list[PageData]) -> None:
     occurrences: dict[tuple[str, str], set[int]] = {}
     for page in pages:
         for line in group_lines([w for w in page.words if w.upright], page.body_size, split_gaps=True):
+            if any(protected(w,page) for w in line.words):
+                continue
             side = "top" if line.bbox[3] < page.height * 0.09 else "bottom" if line.bbox[1] > page.height * 0.91 else ""
             if not side:
                 continue

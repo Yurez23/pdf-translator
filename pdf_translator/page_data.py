@@ -35,6 +35,15 @@ class TableData:
 
 
 @dataclass
+class FormRegion:
+    """Confirmed static form and its non-overlapping field panels."""
+
+    bbox: BBox
+    fields: tuple[BBox, ...]
+    attachments: tuple[BBox, ...] = ()
+
+
+@dataclass
 class PageData:
     number: int
     width: float
@@ -48,3 +57,4 @@ class PageData:
     images: list[BBox] = field(default_factory=list)
     diagram_boxes: list[BBox] = field(default_factory=list)
     caption_styles: set[tuple] = field(default_factory=set)
+    form_regions: list[FormRegion] = field(default_factory=list)

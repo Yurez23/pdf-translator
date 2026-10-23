@@ -387,6 +387,8 @@ class DiagnosticAndArchitectureTests(LocalCase):
             "models.py": {"layout", "pdfplumber", "pdf_reader"},
             "page_data.py": {"layout", "pdfplumber", "pdf_reader"},
             "table_structure.py": {"layout", "export", "pdfplumber", "pdf_reader", "translation"},
+            "forms.py": {"layout", "export", "pdfplumber", "pdf_reader", "pdfminer", "translation",
+                         "pathlib", "os", "io", "requests", "urllib", "http", "socket"},
             "captions.py": {"layout", "pdf_reader"},
             "telemetry.py": {"translation", "models", "storage", "gemini", "jsonl"},
         }

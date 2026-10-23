@@ -11,6 +11,7 @@ from pdfplumber.utils.exceptions import PdfminerException
 
 from .captions import remove_figure_captions
 from .diagrams import card_panels
+from .forms import attach_form_labels, detect_form_regions
 from .geometry import body_size, contains
 from .page_data import PageData, TableData
 from .page_selection import parse_pages
@@ -118,6 +119,26 @@ def _read_page(page, warn) -> PageData:
                               tuple(glyph_provenance(c) for c in chars)))
     data = PageData(page.page_number, page.width, page.height, words, body_size(words))
     data.images = [(im["x0"], im["top"], im["x1"], im["bottom"]) for im in page.images if not im.get("imagemask")]
+    shapes = list(page.rects)+list(page.curves)
+    outlines = []
+    for shape in shapes:
+        if not shape.get("stroke"):
+            continue
+        points = shape.get("pts", ())
+        if shape.get("object_type") != "rect":
+            # Near-rectangular closed panels may have small bevelled corners.
+            # Curved icons/circles and open connector lines are not field boxes.
+            if len(points) < 5 or math.dist(points[0],points[-1]) > data.body_size*.2:
+                continue
+            segments = [(a,b,math.dist(a,b)) for a,b in zip(points,points[1:])]
+            total = sum(length for _,_,length in segments)
+            straight = sum(length for a,b,length in segments
+                           if min(abs(a[0]-b[0]), abs(a[1]-b[1])) <= data.body_size*.1)
+            if not total or straight < total*.75:
+                continue
+        outlines.append((shape["x0"],shape["top"],shape["x1"],shape["bottom"]))
+    data.form_regions = detect_form_regions(data, outlines, card_panels(data, shapes))
+    attach_form_labels(data)
     with span("conversion.credits_filter"):
         remove_marginal_credits(data)
     words = data.words
