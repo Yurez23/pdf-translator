@@ -9,7 +9,7 @@ from pdfminer.pdfdocument import PDFPasswordIncorrect
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfplumber.utils.exceptions import PdfminerException
 
-from .captions import remove_figure_captions
+from .captions import remove_background_captions, remove_figure_captions
 from .diagrams import card_panels
 from .forms import attach_form_labels, detect_form_regions
 from .geometry import body_size, contains
@@ -232,6 +232,10 @@ def read_pdf(source, pages, warn):
             if known_styles:
                 for data in extracted:
                     remove_figure_captions(data,known_styles=known_styles)
+            # Composited backgrounds need their own stronger document evidence;
+            # never relax the ordinary-image bounds or feed back weaker styles.
+            with span("conversion.captions_filter"):
+                remove_background_captions(extracted)
     except ConversionError:
         raise
     except PDFPasswordIncorrect as exc:

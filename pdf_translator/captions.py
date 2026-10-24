@@ -6,11 +6,13 @@ and a page-sized background is also an image in many illustrated books.
 
 from collections import Counter
 import re
+from statistics import median
 
 from .geometry import contains, group_lines
 from .page_data import PageData
-from .models import BBox, Line, Word
-from .paragraphs import italic
+from .models import BBox, Line, Word, union_bbox
+from .paragraphs import bold, italic
+from .text import is_list
 
 
 def _overlap(a: BBox, b: BBox) -> float:
@@ -81,6 +83,128 @@ def _belongs_to_prose(line: Line, prose: list[Line], size: float) -> bool:
             if matches >= 2 or followed_by_prose:
                 return True
     return False
+
+
+def _styled_runs(lines: list[Line], body: float) -> list[list[Line]]:
+    """Group before eligibility checks, so an uncertain tail vetoes the run."""
+    groups: list[list[Line]] = []
+    for line in lines:
+        for group in groups:
+            previous = group[-1]
+            centers = abs((line.bbox[0]+line.bbox[2]-previous.bbox[0]-previous.bbox[2])/2)
+            if (_style(line.words) == _style(previous.words)
+                    and abs(line.size-previous.size) <= .5
+                    and -max(body*.3, line.size*.5) <= line.bbox[1]-previous.bbox[3] <= body
+                    and (centers <= body*2 or abs(line.bbox[0]-previous.bbox[0]) <= body)):
+                group.append(line)
+                break
+        else:
+            groups.append([line])
+    return groups
+
+
+def _body_prose(page: PageData, lines: list[Line]) -> list[Line]:
+    """Require a paragraph run, rather than trusting the page's modal size alone."""
+    ordinary = [line for line in lines
+                if page.body_size*.75 <= line.size <= page.body_size*1.15
+                and not _inside_protected(line, page)]
+    result = {}
+    for first in ordinary:
+        run = [first]
+        for following in ordinary:
+            previous = run[-1]
+            if (0 <= following.bbox[1]-previous.bbox[3] <= page.body_size
+                    and abs(following.bbox[0]-first.bbox[0]) <= page.body_size*2
+                    and abs(following.size-first.size) <= .5
+                    and _style(following.words) == _style(first.words)):
+                run.append(following)
+        if len(run) >= 3 and sum(line.source_length for line in run) >= 100:
+            result.update((id(line), line) for line in run)
+    return list(result.values())
+
+
+def remove_background_captions(pages: list[PageData]) -> None:
+    """Conservative document pass for compact labels on composited artwork.
+
+    A background only enables this branch; it does not locate a figure. A new
+    style therefore needs stronger paragraph, typography and group evidence
+    than an ordinary image label. Freeze content vetoes and strong seeds before
+    reuse, so weak matches cannot bootstrap a cascade of further deletions.
+    """
+    lines = {p.number: group_lines([w for w in p.words if w.upright], p.body_size,
+                                  split_gaps=True) for p in pages}
+    prose = {p.number: _body_prose(p, lines[p.number]) for p in pages}
+    sizes = [line.size for p in pages for line in prose[p.number]]
+    if not sizes:
+        return
+    document_body = median(sizes)
+    content_styles = set()
+    for page in pages:
+        body = median(line.size for line in prose[page.number]) if prose[page.number] else document_body
+        context_lines = [line for line in lines[page.number]
+                         if body*.75 <= line.size <= body*1.15]
+        prose_ids = {id(line) for line in prose[page.number]}
+        for line in lines[page.number]:
+            if (_inside_protected(line, page) or italic(line) or is_list(line.text)
+                    or id(line) in prose_ids
+                    or _belongs_to_prose(line, context_lines, body)):
+                content_styles.add(_style(line.words))
+
+    candidates = []
+    seeds = set().union(*(p.caption_styles for p in pages)) - content_styles
+    for page in pages:
+        backgrounds = [box for box in page.images
+                       if box[2]-box[0] >= page.width*.9 and box[3]-box[1] >= page.height*.9]
+        if not backgrounds:
+            continue
+        local_prose = prose[page.number]
+        body = median(line.size for line in local_prose) if local_prose else document_body
+        body_style = _style([w for line in local_prose for w in line.words]) if local_prose else None
+        for group in _styled_runs(lines[page.number], body):
+            style = _style(group[0].words)
+            box = union_bbox([line.bbox for line in group])
+            centers = [(line.bbox[0]+line.bbox[2])/2 for line in group]
+            if not (2 <= len(group) <= 4 and sum(len(line.text) for line in group) <= 160
+                    and re.search(r'[.!?…]$', group[-1].text)
+                    and all(1 <= len(line.words) <= 14 and len(line.text) <= 120
+                            and body*1.8 < line.size <= body*3 for line in group)
+                    and max(centers)-min(centers) <= body
+                    and box[2]-box[0] <= page.width*.6
+                    and any(b[0] <= box[0] and b[1] <= box[1]
+                            and box[2] <= b[2] and box[3] <= b[3] for b in backgrounds)):
+                continue
+            if (style in content_styles or any(_inside_protected(line, page)
+                    or italic(line) or all(bold(w) for w in line.words) or is_list(line.text)
+                    or line.text.startswith(('“', '‘', '"', '«', '—'))
+                    or any(g.symbol for w in line.words for g in w.glyphs) for line in group)):
+                continue
+            # A nearby display line with changed size/face may be the tail of
+            # this same label. Do not delete only the uniform prefix of a run.
+            members = {id(line) for line in group}
+            if any(id(other) not in members and abs(other.size-group[0].size) <= body*.3
+                   and max(other.bbox[1]-box[3], box[1]-other.bbox[3], 0) <= body
+                   and (abs((other.bbox[0]+other.bbox[2]-box[0]-box[2])/2) <= body*2
+                        or _overlap(box, other.bbox) >= min(box[2]-box[0], other.bbox[2]-other.bbox[0])*.8)
+                   for other in lines[page.number]):
+                continue
+            # Separation from every overlapping prose line is stricter than
+            # left-edge alignment: a centred heading still owns nearby prose.
+            if any(_overlap(box, other.bbox) >= min(box[2]-box[0], other.bbox[2]-other.bbox[0])*.5
+                   and max(other.bbox[1]-box[3], box[1]-other.bbox[3], 0) <= body*2.5
+                   for other in local_prose):
+                continue
+            strong = bool(body_style and style[0] != body_style[0]
+                          and style[1] is not None and body_style[1] is not None
+                          and style[1] != body_style[1])
+            candidates.append((page, group, style, strong))
+            if strong:
+                seeds.add(style)
+    for page, group, style, strong in candidates:
+        if strong or style in seeds:
+            ignored = {id(w) for line in group for w in line.words}
+            page.words = [w for w in page.words if id(w) not in ignored]
+            # Background matches never broaden the ordinary-image classifier.
+            # Its historical font/colour style key has no size or context guard.
 
 
 def remove_figure_captions(page: PageData, *, known_styles: set[tuple] | None = None) -> None:
