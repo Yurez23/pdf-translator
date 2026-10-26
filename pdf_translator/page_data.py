@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from .models import BBox, Word
+from .diagram_geometry import DiagramPath, DiagramStructure
 
 
 @dataclass(frozen=True)
@@ -71,3 +72,8 @@ class PageData:
     heading_panels: list[BBox] = field(default_factory=list)
     heading_hints: list[HeadingHint] = field(default_factory=list)
     heading_rules: list[BBox] = field(default_factory=list)
+    diagram_paths: list[DiagramPath] = field(default_factory=list)
+    diagram_issues: tuple[str, ...] = ()
+    diagram_obstacles: list[BBox] = field(default_factory=list)
+    diagram_mappings: list[DiagramStructure] = field(default_factory=list)
+    diagram_arrows: list[DiagramPath] = field(default_factory=list)

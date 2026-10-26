@@ -6,6 +6,7 @@ from collections import Counter
 from dataclasses import replace
 
 from .geometry import contains, group_lines
+from .diagram_geometry import recover_connections
 from .continuations import merge_continuations
 from .headings import graphic_label
 from .paragraphs import (lead_in as _lead_in, hanging_entry, bold_continuation,
@@ -329,9 +330,13 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
         part_ids = {id(b) for b in diagram_parts}
         specials = [b for b in specials if id(b) not in part_ids]
         diagram_parts.sort(key=lambda b:(b.sources[0].bbox[1],b.sources[0].bbox[0]))
+        structure = recover_connections(page.diagram_boxes,page.diagram_paths,page=page.number,
+                                        size=page.body_size,bounds=(0,0,page.width,page.height),
+                                        obstacles=page.diagram_obstacles,arrows=page.diagram_arrows)
+        structure = replace(structure,issues=tuple(sorted(set(structure.issues+page.diagram_issues))))
         specials.append(Block('aside',' '.join(b.text for b in diagram_parts),
                               (SourceRegion(page.number,region),),children=diagram_parts,
-                              body_size=page.body_size,role='diagram'))
+                              body_size=page.body_size,role='diagram',diagram=structure))
     # A sidebar may be the only text in one column; it still establishes
     # the gutter even though its words are processed in a separate container.
     flow_words = [w for w in upright if not any(contains(box,w) for box in table_boxes+frames+(

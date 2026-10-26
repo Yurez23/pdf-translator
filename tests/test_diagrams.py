@@ -6,7 +6,7 @@ of scope. Run with standard unittest.
 """
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import BytesIO
 from pathlib import Path
 import re
@@ -228,7 +228,12 @@ class CardPanelIntegrationTests(unittest.TestCase):
         expected_tokens = Counter(canonical(" ".join([c.text for c in specs] + list(outside))).split())
         self.assertEqual(Counter(all_leaves.split()), expected_tokens,
                          "Leaf blocks must not duplicate even fragments of card text")
-        self.assertEqual(Counter(canonical(text).split()), expected_tokens,
+        def source_only(b):
+            return replace(b,diagram=None,children=[source_only(c) for c in b.children])
+        # PDF-06 references are generated structure. Compare the exact source
+        # export separately, without stripping/normalizing any source words.
+        source_text=render([source_only(b) for b in blocks])[1]
+        self.assertEqual(Counter(canonical(source_text).split()), expected_tokens,
                          "TXT must contain every ordinary word and number exactly as often as the source")
         for card in specs:
             with self.subTest(title=card.title):

@@ -17,6 +17,8 @@ from .heading_context import learn_heading_context
 from .page_data import PageData, TableData
 from .page_selection import parse_pages
 from .pdf_symbols import glyph_page, glyph_provenance, recover_symbols
+from .pdf_diagrams import extract_paths, extract_mapping_geometry, extract_arrows
+from .diagram_mappings import recover_cell_mappings
 from .preprocessing import integrate_dropcaps, remove_marginal_credits
 from .table_recovery import recover_painted_tables
 from .table_structure import CellPaint, recover_table_structure
@@ -149,8 +151,29 @@ def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
     if any("\ufffd" in w.text or re.search(r"\(cid:\d+\)", w.text) for w in words):
         warn(ConversionWarning("unmapped_glyph", "В текстовом слое есть символы без корректной кодировки; проверьте страницу.", (page.page_number,)))
     data.diagram_boxes = card_panels(data, list(page.rects)+list(page.curves))
+    cells,pointers,marks=extract_mapping_geometry(page,data.body_size)
+    data.diagram_mappings=recover_cell_mappings(cells,pointers,words,marks,page=page.page_number,size=data.body_size)
     if data.diagram_boxes:
-        warn(ConversionWarning("diagram_layout", "Карточки схемы сохранены отдельными блоками; графические связи не восстановлены. Поддерживаемые значки сохранены текстом.", (page.page_number,)))
+        data.diagram_paths, data.diagram_issues = extract_paths(page)
+        data.diagram_arrows = extract_arrows(page,data.body_size)
+        # Opaque banners occlude connector paths just as cards do. A hidden
+        # stroke behind a label must not become a direct card-card edge.
+        for shape in shapes:
+            box=(shape['x0'],shape['top'],shape['x1'],shape['bottom'])
+            if (shape.get('fill') and box[2]-box[0]>data.body_size*2
+                    and box[3]-box[1]>data.body_size*.7
+                    and (box[2]-box[0])*(box[3]-box[1])<data.width*data.height*.2
+                    and any(contains(box,w) for w in words)
+                    and not any(min(box[2],b[2])>max(box[0],b[0]) and
+                                min(box[3],b[3])>max(box[1],b[1]) for b in data.diagram_boxes)):
+                # Only linear closed panels: curved artwork's bbox is not
+                # evidence of opaque paint throughout its interior.
+                ops=shape.get('path',())
+                if shape.get('object_type')=='rect' or (ops and all(op[0] in ('m','l','h') for op in ops)
+                     and len({round(p[0],3) for p in shape.get('pts',())})==2
+                     and len({round(p[1],3) for p in shape.get('pts',())})==2):
+                    data.diagram_obstacles.append(box)
+        warn(ConversionWarning("diagram_layout", "Текст карточек сохранён; извлекаемые связи обозначены нейтрально. Структура частичная: направление, игровые условия и неподтверждённые элементы требуют проверки по PDF.", (page.page_number,)))
     try:
         for table in clean.find_tables():
             # Connector lines through a card grid are not table ruling. They

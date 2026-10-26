@@ -6,7 +6,6 @@ network, OCR, or changes to the input PDF. Text and tables share these chars.
 
 import hashlib
 
-from pdfminer.pdfinterp import PDFPageInterpreter
 from pdfminer.pdftypes import resolve1
 from pdfminer.latin_enc import ENCODING
 from pdfminer.psparser import PSLiteral
@@ -16,6 +15,7 @@ from pdfplumber.utils.exceptions import PdfminerException
 from .models import ConversionWarning, Glyph
 from .symbol_geometry import vector_symbols
 from .symbols import LABELS, identify_glyph
+from .pdf_diagrams import GeometryInterpreter
 
 _WIN_ANSI_GLYPHS = {row[3]: row[0] for row in ENCODING if row[3] is not None}
 
@@ -70,6 +70,13 @@ class _GlyphDevice(PDFPageAggregatorWithMarkedContent):
         super().__init__(*args, **kwargs)
         self.font_digests = {}
 
+    def paint_path(self, graphicstate, *args, **kwargs):
+        before = len(self.cur_item._objs)
+        super().paint_path(graphicstate, *args, **kwargs)
+        for item in self.cur_item._objs[before:]:
+            item.diagram_clip = getattr(graphicstate,"diagram_clip",None)
+            item.diagram_clip_unknown = getattr(graphicstate,"diagram_clip_unknown",False) or self.cur_item.__class__.__name__ == "LTFigure"
+
     def render_char(self, matrix, font, fontsize, scaling, rise, cid, ncs, graphicstate):
         advance = super().render_char(matrix, font, fontsize, scaling, rise, cid, ncs, graphicstate)
         item = self.cur_item._objs[-1]
@@ -92,7 +99,7 @@ class _GlyphPage(Page):
             resources = _GlyphResources(self.pdf.rsrcmgr)
             device = _GlyphDevice(resources, pageno=self.page_number, laparams=self.pdf.laparams)
             try:
-                PDFPageInterpreter(resources, device).process_page(self.page_obj)
+                GeometryInterpreter(resources, device).process_page(self.page_obj)
             except Exception as exc:
                 raise PdfminerException(exc) from exc
             self._layout = device.get_result()
@@ -104,6 +111,10 @@ class _GlyphPage(Page):
             result["source_cid"] = getattr(obj, "source_cid", None)
             result["font_sha256"] = getattr(obj, "font_sha256", "")
             result["encoding_glyph"] = getattr(obj, "encoding_glyph", "")
+        elif result["object_type"] in ("line","curve","rect"):
+            clip = getattr(obj,"diagram_clip",None)
+            result["diagram_clip"] = (clip[0],self.height-clip[3],clip[2],self.height-clip[1]) if clip else None
+            result["diagram_clip_unknown"] = getattr(obj,"diagram_clip_unknown",False)
         return result
 
 

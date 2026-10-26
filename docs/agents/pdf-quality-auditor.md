@@ -131,6 +131,12 @@ audit, identify the sample and make no whole-document quality claim.
 - **Special blocks:** Keep footnotes, sidebars, and unsupported raw fragments
   distinct from main prose while retaining their text. Verify that caption/credit
   removal has not removed legitimate content.
+- **Diagram relationships:** Distinguish generated N/J/U/C references from source
+  words and symbols. Verify every claimed connection or cell correspondence
+  against the complete source diagram and its supporting geometry; unarrowed
+  lines do not prove direction, prerequisites or AND/OR conditions. Shared trunks
+  must not become cliques, and an unresolved endpoint or crossing must remain
+  explicit. A partial/text-only fallback is not complete structure recovery.
 - **Output formatting:** Check UTF-8 text, one-line prose paragraphs, blank-line
   separation, tables, and Markdown escaping without requiring page-layout fidelity.
 

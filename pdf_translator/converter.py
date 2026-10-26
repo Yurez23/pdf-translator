@@ -7,6 +7,7 @@ from .export import render
 from .headings import assign_heading_levels
 from .layout import layout_page
 from .continuations import merge_continuations
+from .diagram_mappings import attach_mappings
 from .preprocessing import remove_running_margins
 from .pdf_reader import read_pdf
 from .models import ConversionError, ConversionResult, ConversionWarning, HyphenResolver
@@ -60,7 +61,9 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
     for page in extracted:
         with span("conversion.page_layout", page=page.number, selected=page.number in selected_pages):
             if page.number in selected_pages:
-                document_blocks.extend(layout_page(page, lexicon, warn, hyphen_resolver))
+                page_blocks=layout_page(page, lexicon, warn, hyphen_resolver)
+                attach_mappings(page_blocks,page.diagram_mappings)
+                document_blocks.extend(page_blocks)
             else:
                 document_blocks.extend(layout_page(page, set(), lambda _: None))
     with span("conversion.headings"):

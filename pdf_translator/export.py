@@ -3,6 +3,7 @@
 import re
 
 from .models import Block
+from .diagram_export import references, annotate_cells
 
 
 def _escape(text: str) -> str:
@@ -19,6 +20,7 @@ def render(blocks: list[Block]) -> tuple[str, str]:
     md: list[str] = []
     txt: list[str] = []
     for block in blocks:
+        content=annotate_cells(block) if block.diagram and block.diagram.status in ('cells','correspondence') else block.text
         if block.kind == "table":
             rows = [[_escape(cell).replace("|", r"\|") for cell in row] for row in block.rows]
             if not rows:
@@ -29,19 +31,32 @@ def render(blocks: list[Block]) -> tuple[str, str]:
             txt.append("\n".join("\t".join(row) for row in block.rows))
         elif block.kind == "heading":
             if block.role in ("table_title", "table_group", "title_label", "aside_title", "graphic_label"):
-                md.append("**" + _escape(block.text) + "**")
+                md.append("**" + _escape(content) + "**")
             else:
-                md.append("#" * max(1, min(block.level, 6)) + " " + _escape(block.text))
-            txt.append(block.text)
+                md.append("#" * max(1, min(block.level, 6)) + " " + _escape(content))
+            txt.append(content)
         elif block.kind == "aside" and block.children:
-            inner_md, inner_txt = render(block.children)
+            if block.diagram:
+                inner_mds,inner_txts=[],[]
+                for child in block.children:
+                    node=next((n for n in block.diagram.nodes if n.kind=="card" and
+                               child.role=="diagram_node" and child.sources[0]==n.source),None)
+                    child_md,child_txt=render([child])
+                    if node:
+                        inner_mds.append(f"**Node {node.id}**");inner_txts.append(f"Node {node.id}")
+                    inner_mds.append(child_md.rstrip("\n"));inner_txts.append(child_txt.rstrip("\n"))
+                generated=references(block.diagram)
+                inner_mds.append(generated);inner_txts.append(generated)
+                inner_md="\n\n".join(inner_mds)+"\n";inner_txt="\n\n".join(inner_txts)+"\n"
+            else:
+                inner_md, inner_txt = render(block.children)
             # Quoted blank lines keep paragraphs in ONE CommonMark blockquote.
             # A bare blank line would terminate it and create separate boxes.
             md.append("\n".join("> " + line if line else ">" for line in inner_md.rstrip("\n").split("\n")))
             txt.append(inner_txt.rstrip("\n"))
         elif block.kind in ("aside", "footnote", "raw"):
-            md.append("> " + _escape(block.text))
-            txt.append(block.text)
+            md.append("> " + _escape(content))
+            txt.append(content)
         elif block.kind == "list_item":
             text = re.sub(r"^[•●▪◦‣◆◇*–]\s+", "- ", block.text)
             # Keep ordered-list markers, escape only their payload.
@@ -53,6 +68,10 @@ def render(blocks: list[Block]) -> tuple[str, str]:
                       _paragraph(text) if colon_label else "- " + _escape(text))
             txt.append(block.text)
         else:
-            md.append(_paragraph(block.text))
-            txt.append(block.text)
+            md.append(_paragraph(content))
+            txt.append(content)
+        if block.diagram and block.diagram.status=='correspondence':
+            generated=references(block.diagram)
+            md.append('\n'.join('> '+line for line in generated.splitlines()))
+            txt.append(generated)
     return ("\n\n".join(md) + "\n" if md else "", "\n\n".join(txt) + "\n" if txt else "")

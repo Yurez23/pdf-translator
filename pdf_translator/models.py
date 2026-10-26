@@ -2,7 +2,10 @@
 
 from dataclasses import dataclass, field
 from collections.abc import Callable
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from .diagram_geometry import DiagramStructure
 
 from .diagnostics import DiagnosticError
 
@@ -118,6 +121,8 @@ class Block:
     # Logical outline depth is independent of Markdown's six heading levels.
     # Zero preserves compatibility with manually constructed/legacy blocks.
     outline_level: int = 0
+    # Generated structure is separate from source text and child ownership.
+    diagram: "DiagramStructure | None" = None
 
 
 @dataclass(frozen=True)
