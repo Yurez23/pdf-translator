@@ -7,6 +7,7 @@ from .export import render
 from .headings import assign_heading_levels
 from .layout import layout_page
 from .continuations import merge_continuations
+from .paragraph_conventions import infer_paragraph_conventions
 from .diagram_mappings import attach_mappings
 from .preprocessing import remove_running_margins
 from .pdf_reader import read_pdf
@@ -70,12 +71,14 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
         assign_heading_levels(document_blocks, selected_pages, warn, pages=extracted)
     blocks = [block for block in document_blocks if block.sources[0].page in selected_pages]
     with span("conversion.continuations"):
+        paragraph_conventions = infer_paragraph_conventions(document_blocks)
         empty_pages = {page.number for page in extracted if page.number in selected_pages and not page.words}
         insert_pages = {number for number in selected_pages
                         if any(b.sources[0].page == number for b in blocks)
                         and all(b.role == "form_insert" for b in blocks if b.sources[0].page == number)}
         blocks = merge_continuations(blocks, lexicon, warn, hyphen_resolver, empty_pages=empty_pages,
-                                     selected_pages=selected_pages, insert_pages=insert_pages)
+                                     selected_pages=selected_pages, insert_pages=insert_pages,
+                                     paragraph_conventions=paragraph_conventions)
     with span("conversion.render"):
         markdown, text = render(blocks)
     if not text.strip():

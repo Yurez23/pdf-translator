@@ -68,6 +68,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/symbol_signatures.py](../pdf_translator/symbol_signatures.py) | Изолированные нормализованные сигнатуры с доказательствами в документации; без условий по странице, названию или прозе. |
 | [pdf_translator/geometry.py](../pdf_translator/geometry.py) | `contains`, `body_size`, `group_lines`: общие координаты и строки. |
 | [pdf_translator/paragraphs.py](../pdf_translator/paragraphs.py) | Типографические правила вводных/висячих пунктов, продолжения жирной фразы, отступа новой первой строки и границы авторского курсива; без PDF SDK и I/O. |
+| [pdf_translator/paragraph_conventions.py](../pdf_translator/paragraph_conventions.py) | PDF-07: нейтральные образцы внутренних абзацных границ, вывод документного отступа и консервативное доказательство продолжения после законченного предложения; без извлечения, callbacks, экспорта и I/O. |
 | [pdf_translator/diagrams.py](../pdf_translator/diagrams.py) | Узкий геометрический детектор раздельных карточек: белые панели, повторяемые ширины, настоящие промежутки и корневые узлы; без интерпретации стрелок. |
 | [pdf_translator/pdf_diagrams.py](../pdf_translator/pdf_diagrams.py) | PDF-адаптер линейных paths, заполненных указателей и clipping; прямоугольные clip сохраняются, неподдержанные отсекаются от вывода связей. |
 | [pdf_translator/diagram_geometry.py](../pdf_translator/diagram_geometry.py) | Нейтральные DTO и вывод видимых связей, стыков, неразрешённых концов и направлений при отдельном доказательстве стрелки; без SDK/I/O/игровых правил. |
@@ -131,6 +132,7 @@ CLI: __main__ / console script → cli.main
 | [tests/__init__.py](../tests/__init__.py) | Делает тесты пакетом; позволяет импортировать общие генераторы контрольных PDF. |
 | [tests/test_converter.py](../tests/test_converter.py) | `TextTests`, `PdfTests`, `CliTests`, `ReferencePdfTests`: текстовые правила, сквозная конвертация, CLI и необязательная контрольная глава `example/10. Chapter 8 Goals and Rewards.pdf` (старый fallback: `example.pdf`). |
 | [tests/test_continuations.py](../tests/test_continuations.py) | `LabelLayoutTests`, `ContinuationRulesTests`: жирные начала, отступы, списки, кавычки/скобки, страницы/колонки и запреты на ошибочную склейку. |
+| [tests/test_paragraph_conventions.py](../tests/test_paragraph_conventions.py) | PDF-07: нейтральные модели и реальное извлечение синтетических PDF; полная фраза/заглавное начало, отступы и противоречия, новые абзацы, барьеры, выбор страниц, масштаб/шум, сохранение текста/строк/источников и локальная Endeavors. |
 | [tests/test_layout_recovery.py](../tests/test_layout_recovery.py) | Общие положительные/отрицательные проверки графических надписей, малых буллитов, абзацев/диалога; необязательные локальные регрессии Introduction. |
 | [tests/test_book_recovery.py](../tests/test_book_recovery.py) | Межглавные регрессии: швы колонок/страниц, отступы, поля, цитаты, буквицы, overprint-пробелы и потерянные ячейки. |
 | [tests/test_diagrams.py](../tests/test_diagrams.py) | Положительные/отрицательные сетки карточек, отдельные владельцы текста и независимые локальные проверки карточек по исходным координатам. |

@@ -5,16 +5,9 @@ from collections import Counter
 from collections.abc import Callable
 from .models import Block, ConversionWarning, HyphenResolver, Line
 from .text import join_lines, terminal as _terminal
+from .paragraph_conventions import ParagraphConventions, line_font as _line_font
 
 type Warn = Callable[[ConversionWarning], None]
-
-
-def _line_font(line: Line) -> str:
-    fonts: Counter[str] = Counter()
-    for word in line.words:
-        # PDF subset prefixes can differ between pages of the same document.
-        fonts[re.sub(r"^[A-Z]{6}\+", "", word.font)] += len(word.text)
-    return fonts.most_common(1)[0][0] if fonts else ""
 
 
 def _closes_open_bracket(previous: str, following: str) -> bool:
@@ -71,7 +64,8 @@ def _continuation_alignment(previous: Block, following: Block) -> bool:
 def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
                         *, empty_pages: set[int] | None = None,
                         selected_pages: set[int] | None = None,
-                        insert_pages: set[int] | None = None) -> list[Block]:
+                        insert_pages: set[int] | None = None,
+                        paragraph_conventions: ParagraphConventions | None = None) -> list[Block]:
     result: list[Block] = []
     diagram_titles = {id(a) for a,b in zip(blocks,blocks[1:])
                       if a.role == 'aside_title' and b.role == 'diagram'}
@@ -111,10 +105,18 @@ def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, reso
             # before accepting this weaker fullness signal.
             short_wrap = (next_column and len(prev.lines)>=2 and block.text[:1].islower()
                           and last.bbox[2]-last.bbox[0] >= prev.container_width*.6)
-            if ((next_page or next_column) and not _terminal(prev.text) and (full_line or short_wrap or prev.text.endswith("-"))
+            unfinished = (not _terminal(prev.text) and (full_line or short_wrap or prev.text.endswith("-"))
                     and _continuation_start(prev.text, block.text) and _continuation_alignment(prev, block)
                     and abs(first.size - last.size) <= prev.body_size * 0.15
-                    and _line_font(first) == _line_font(last)):
+                    and _line_font(first) == _line_font(last))
+            # Independent structural evidence, separate from the historical
+            # unfinished-sentence branch and from the stricter form policy.
+            complete = (paragraph_conventions is not None and _terminal(prev.text)
+                        and not between and (b.page == a.page + 1 or next_column
+                                             and first.bbox[1] < last.bbox[1] - prev.body_size * 2)
+                        and (selected_pages is None or {a.page, b.page} <= selected_pages)
+                        and paragraph_conventions.continues(prev, block))
+            if (next_page or next_column) and (unfinished or complete):
                 prev.text = join_lines([prev.text, block.text], lexicon, b.page, warn, resolver)
                 prev.sources += block.sources
                 prev.lines += block.lines
