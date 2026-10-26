@@ -43,6 +43,16 @@ class FormRegion:
     attachments: tuple[BBox, ...] = ()
 
 
+@dataclass(frozen=True)
+class HeadingHint:
+    """Geometric evidence, not a preassigned outline depth."""
+
+    bbox: BBox
+    role: str = ""
+    scope: str = ""
+    protect: bool = False
+
+
 @dataclass
 class PageData:
     number: int
@@ -58,3 +68,6 @@ class PageData:
     diagram_boxes: list[BBox] = field(default_factory=list)
     caption_styles: set[tuple] = field(default_factory=set)
     form_regions: list[FormRegion] = field(default_factory=list)
+    heading_panels: list[BBox] = field(default_factory=list)
+    heading_hints: list[HeadingHint] = field(default_factory=list)
+    heading_rules: list[BBox] = field(default_factory=list)

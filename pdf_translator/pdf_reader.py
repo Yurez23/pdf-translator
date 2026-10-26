@@ -13,6 +13,7 @@ from .captions import remove_background_captions, remove_figure_captions
 from .diagrams import card_panels
 from .forms import attach_form_labels, detect_form_regions
 from .geometry import body_size, contains
+from .heading_context import learn_heading_context
 from .page_data import PageData, TableData
 from .page_selection import parse_pages
 from .pdf_symbols import glyph_page, glyph_provenance, recover_symbols
@@ -96,7 +97,7 @@ def _overprinted_spaces(chars) -> set[int]:
     return ignored
 
 
-def _read_page(page, warn) -> PageData:
+def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
     page = glyph_page(page)
     clean = page.dedupe_chars(tolerance=0.5, extra_attrs=("fontname", "size"))
     clean = recover_symbols(clean, warn)
@@ -196,10 +197,17 @@ def _read_page(page, warn) -> PageData:
         if not any(all(abs(a-b)<3 for a,b in zip(box,other)) for other in data.frames):
             data.frames.append(box)
     data.separators = [shape["top"] for shape in page.lines if shape["width"] > data.body_size * 4 and shape["height"] < 2]
+    data.heading_rules = [(s['x0'],s['top'],s['x1'],s['bottom']) for s in page.lines
+                          if s['width'] > data.body_size*4 and s['height'] < 2]
+    data.heading_panels = [(s['x0'],s['top'],s['x1'],s['bottom']) for s in shapes
+                           if s.get('fill') and s['x1']-s['x0'] >= data.body_size*6
+                           and s['bottom']-s['top'] >= data.body_size*.7
+                           and s['x1']-s['x0'] <= data.width*.95]
     with span("conversion.dropcaps"):
         integrate_dropcaps(data)
-    with span("conversion.captions_filter"):
-        remove_figure_captions(data)
+    if not defer_captions:
+        with span("conversion.captions_filter"):
+            remove_figure_captions(data)
     return data
 
 
@@ -220,11 +228,16 @@ def read_pdf(source, pages, warn):
                     # Full-document context keeps heading levels stable for
                     # --pages. Unselected pages cannot emit warnings or prompt.
                     with span("conversion.page_extract", page=number, selected=number in selected_pages):
-                        data = _read_page(page, warn if number in selected_pages else lambda _: None)
+                        data = _read_page(page, warn if number in selected_pages else lambda _: None,
+                                          defer_captions=True)
                         extracted.append(data)
                         emit("conversion.page_stats", words=len(data.words), tables=len(data.tables))
                 finally:
                     page.close()
+            learn_heading_context(extracted)
+            for data in extracted:
+                with span("conversion.captions_filter"):
+                    remove_figure_captions(data)
             # Image-only pages can be dominated by labels rather than prose.
             # Reuse styles of captions confidently identified on other pages;
             # never hardcode a particular book's font, colour, or label text.

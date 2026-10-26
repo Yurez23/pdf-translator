@@ -52,15 +52,16 @@ class DocumentHeadingTests(unittest.TestCase):
     def levels(result):
         return {b.text: b.level for b in result.blocks if b.kind == "heading" and not b.role}
 
-    def test_four_styles_use_four_levels_without_book_specific_sizes(self):
+    def test_four_sizes_alone_do_not_prove_four_nested_levels(self):
         for sizes in ((26, 21, 16, 13), (24, 20, 17, 14)):
             with self.subTest(sizes=sizes):
                 def draw(c):
                     for i, size in enumerate(sizes):
                         section(c, f"Section {i}", size, 90 + i * 140)
                 result = self.convert(draw)
-                self.assertEqual(self.levels(result), {f"Section {i}": i + 1 for i in range(4)})
-                self.assertIn("#### Section 3\n", result.markdown)
+                self.assertEqual(self.levels(result), {f"Section {i}": 1 if i == 0 else 2 for i in range(4)})
+                self.assertTrue(any(w.code == "heading_hierarchy" for w in result.warnings))
+                self.assertFalse(any(w.code == "heading_depth" for w in result.warnings))
 
     def test_larger_style_on_later_page_is_seen_before_assigning_levels(self):
         def draw(c):
@@ -71,13 +72,14 @@ class DocumentHeadingTests(unittest.TestCase):
         self.assertEqual(self.levels(result), {"A subsection": 2, "A parent section": 1})
 
     def test_page_selection_preserves_document_levels(self):
+        titles = ["1 Section 0", "1.1 Section 1", "1.1.1 Section 2", "1.1.1.1 Section 3"]
         def draw(c):
             for i, size in enumerate((26, 21, 16, 13)):
-                section(c, f"Section {i}", size, 100)
+                section(c, titles[i], size, 100)
                 c.showPage()
         whole = self.convert(draw)
-        for pages, expected in (("3", {"Section 2": 3}),
-                                ("2,4", {"Section 1": 2, "Section 3": 4})):
+        for pages, expected in (("3", {titles[2]: 3}),
+                                ("2,4", {titles[1]: 2, titles[3]: 4})):
             with self.subTest(pages=pages):
                 selected = convert_pdf(self.path, pages=pages)
                 self.assertEqual(self.levels(selected), expected)
@@ -90,8 +92,12 @@ class DocumentHeadingTests(unittest.TestCase):
             section(c, "First peer", 18, 230)
             section(c, "Second peer", 18.15, 370)
             section(c, "Nested", 16, 510)
+            section(c, "Another nested", 16, 630)
+            c.showPage()
+            section(c, "Returning peer", 18, 100)
         self.assertEqual(self.levels(self.convert(draw)),
-                         {"Root": 1, "First peer": 2, "Second peer": 2, "Nested": 3})
+                         {"Root": 1, "First peer": 2, "Second peer": 2, "Nested": 3,
+                          "Another nested": 3, "Returning peer": 2})
 
     def test_different_fonts_of_the_same_size_do_not_invent_depth(self):
         def draw(c):
@@ -170,11 +176,13 @@ class DocumentHeadingTests(unittest.TestCase):
         self.assertIn("All of its content must survive", result.text)
 
     def test_more_than_six_levels_are_capped_with_a_warning(self):
+        titles = ['.'.join(['1']*(i+1))+f" Depth {i}" for i in range(7)]
         def draw(c):
             for i, size in enumerate((31, 28, 25, 22, 19, 16, 13)):
-                section(c, f"Depth {i}", size, 80 + i * 95)
+                section(c, titles[i], size, 80 + i * 95)
         result = self.convert(draw)
-        self.assertEqual(self.levels(result), {f"Depth {i}": min(i + 1, 6) for i in range(7)})
+        self.assertEqual(self.levels(result), {titles[i]: min(i + 1, 6) for i in range(7)})
+        self.assertEqual([b.outline_level for b in result.blocks if b.kind == 'heading'],list(range(1,8)))
         self.assertTrue(any(w.code == "heading_depth" and w.pages == (1,) for w in result.warnings))
 
     def test_unselected_pages_do_not_prompt_or_emit_warnings(self):
@@ -192,10 +200,10 @@ class DocumentHeadingTests(unittest.TestCase):
     def test_deep_styles_on_unselected_pages_do_not_emit_warnings(self):
         def draw(c):
             for i, size in enumerate((31, 28, 25, 22, 19, 16, 13)):
-                section(c, f"Depth {i}", size, 100)
+                section(c, '.'.join(['1']*(i+1))+f" Depth {i}", size, 100)
                 c.showPage()
         result = self.convert(draw, pages="1")
-        self.assertEqual(self.levels(result), {"Depth 0": 1})
+        self.assertEqual(self.levels(result), {"1 Depth 0": 1})
         self.assertFalse(result.warnings)
 
     def test_selected_hyphen_choice_is_requested_only_once(self):

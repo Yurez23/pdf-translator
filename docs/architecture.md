@@ -53,7 +53,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/models.py](../pdf_translator/models.py) | Общие структуры: `Glyph`, `Word`, `Line`, `Block`, `SourceRegion`, результат, предупреждения и вопрос о переносе; типы `BBox`, `BlockKind`, `HyphenResolver`. `union_bbox` объединяет геометрию. |
 | [pdf_translator/layout.py](../pdf_translator/layout.py) | `layout_page`, `_blocks_for_lines`: внутристранничные блоки, колонки, списки, таблицы и вставки; без чтения PDF или межстраничной склейки. |
 | [pdf_translator/captions.py](../pdf_translator/captions.py) | `remove_figure_captions`: обычные подписи у рисунков; `remove_background_captions`: отдельная строгая документная проверка групп на полностраничном фоне до layout/headings. Защищает основной текст, таблицы, их названия, рамочные вставки и формы; поля формы не обучают стиль удаляемой подписи. |
-| [pdf_translator/headings.py](../pdf_translator/headings.py) | `graphic_label`, `HeadingStyle`, `assign_heading_levels`: исключение графических надписей, ранжирование размеров по всему документу, вспомогательные названия таблиц/эпиграфов и метки над крупным заголовком. |
+| [pdf_translator/headings.py](../pdf_translator/headings.py) | `graphic_label`, `HeadingStyle`, `assign_heading_levels`: классификация вхождений, повторяющиеся отношения и согласованная нумерация по всему документу, текущая цепочка родителей и точная глубина и консервативный fallback. |
 | [pdf_translator/text.py](../pdf_translator/text.py) | `normalize`: пробелы, Unicode, лигатуры. `vocabulary`: словарь выбранного текста. `is_list`: явные маркеры. `join_lines`: склейка строк, переносы и вызов обработчика неоднозначностей. |
 | [pdf_translator/export.py](../pdf_translator/export.py) | `render`: одинаковый набор блоков в Markdown и TXT, экранирование, таблицы, списки, рекурсивные вставки. Не читает PDF и не пишет файлы. |
 | [pdf_translator/telemetry.py](../pdf_translator/telemetry.py) | `EventSink`, `log_run`, `span`, `emit`, `instrument`: безопасная схема событий, allowlist, UTC/монотонные длительности, ContextVar, идентификаторы и уровни. Без файловой настройки или SDK. |
@@ -76,6 +76,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/continuations.py](../pdf_translator/continuations.py) | Склейка продолжений между страницами/колонками; отдельная ветвь через формы с явными выбранными страницами и страницами вставок. Проверки шрифта, отступов, скобок и однозначного маршрута; форма не считается пустой страницей. |
 | [pdf_translator/file_outputs.py](../pdf_translator/file_outputs.py) | Общая подготовка и публикация UTF-8-файлов; path/overwrite policy задаёт вызывающий сценарий. |
 | [pdf_translator/jsonl.py](../pdf_translator/jsonl.py) | Файловый `JsonlSink`: ограниченные части, OS-lock, ротация, retention и защита от ссылок. |
+| [pdf_translator/heading_context.py](../pdf_translator/heading_context.py) | Нейтральное документное обучение баннеров до фильтра подписей, геометрические свидетельства вспомогательных ролей; без PDF SDK, рендеринга, удаления текста или I/O. |
 
 ### Необязательный пакет перевода
 
@@ -148,6 +149,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_logging.py](../tests/test_logging.py) | События обеих цепочек, приватность, тайминги/ожидания/попытки, отмена/паузы, resume, стабильные batch-ID, конкурентная запись, ротация/retention и CLI. Внешняя сеть запрещена. |
 | [tests/support.py](../tests/support.py) | Общие memory-store и настройка контроллера без файлов, SDK или сети. |
 | [tests/test_solid_contracts.py](../tests/test_solid_contracts.py) | Дорефакторинговые fingerprint/v3, общие контракты адаптеров, изоляция сессий, memory-only workflow, ошибки записи, диагностика и AST-границы зависимостей. |
+| [tests/test_heading_structure.py](../tests/test_heading_structure.py) | PDF-05: нейтральные модели, синтетические PDF, повторяемые родители/дети и баннеры, отрицательные контексты, нумерация, выбранные страницы, совместимость и точная глубина сверх H6. |
 
 Синтетические PDF создаются в тестовых временных каталогах. Основные проверки
 конвертера не зависят от `output/example.*`; отдельная необязательная регрессия
@@ -228,7 +230,7 @@ Gemini-адаптера и его identity, не знание ядра о wire f
 `page_data` и `models` содержат нейтральные структуры; модели ошибок опираются
 только на общий `DiagnosticError`. `captions` использует геометрию, а не
 движок вёрстки. Чтение PDF находится в `pdf_reader`, координация — в
-`converter`, обработка продолжений — отдельно. `forms` подтверждает нейтральные
+`converter`, обработка продолжений — отдельно. `heading_context` получает нейтральный контекст до фильтра подписей, `headings` назначает глубину после layout всего PDF; рендерер не выводит отношения из оформления. `forms` подтверждает нейтральные
 области до очистки; `layout` собирает их детей и сохраняет таблицы атомарно.
 `continuations` получает `selected_pages` и `insert_pages`, а экспорт не знает
 геометрию распознавания. Функциональное устройство эвристик сохранено.

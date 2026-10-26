@@ -115,6 +115,9 @@ class Block:
     # A framed sidebar owns its heading/paragraph/list blocks. Its flat text is
     # retained for search/compatibility; exporters use children without duplication.
     children: list["Block"] = field(default_factory=list)
+    # Logical outline depth is independent of Markdown's six heading levels.
+    # Zero preserves compatibility with manually constructed/legacy blocks.
+    outline_level: int = 0
 
 
 @dataclass(frozen=True)

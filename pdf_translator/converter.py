@@ -64,7 +64,7 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
             else:
                 document_blocks.extend(layout_page(page, set(), lambda _: None))
     with span("conversion.headings"):
-        assign_heading_levels(document_blocks, selected_pages, warn)
+        assign_heading_levels(document_blocks, selected_pages, warn, pages=extracted)
     blocks = [block for block in document_blocks if block.sources[0].page in selected_pages]
     with span("conversion.continuations"):
         empty_pages = {page.number for page in extracted if page.number in selected_pages and not page.words}
