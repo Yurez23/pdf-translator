@@ -46,11 +46,15 @@ Preserve main prose, headings, lists, table content, footnotes, and sidebars.
 Each prose paragraph occupies one physical output line; blank lines separate
 paragraphs. Structural line breaks in tables and lists are legitimate.
 
-Intentional exclusions are images, text inside images, figure captions, artist
+Intentional exclusions are images, rasterized text requiring OCR, confirmed figure captions, artist
 credits, recurring running headers/footers, and isolated page numbers. Do not
 report their correct omission as data loss. However, ordinary prose, table
 titles/headers, footnotes, and sidebar headings must not be deleted just because
 they are short, small, bold, colored, or near artwork. Check the context visually.
+Extractable text objects over artwork can be useful rules, map/diagram labels,
+or game symbols. An image bbox and a rotated text matrix do not justify deletion.
+In particular, Adventuring physical page 4 contains three useful Opportunity
+slots retained by PDF-01; its `rotated_text` warning is not evidence of junk text.
 
 Expected normalization includes ordinary whitespace cleanup, expanded ligatures,
 and removed soft hyphens. Ordinary line-end hyphens are conservative: ambiguous

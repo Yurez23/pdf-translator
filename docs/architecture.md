@@ -255,6 +255,7 @@ Gemini-адаптера и его identity, не знание ядра о wire f
 | Неправильные слова/координаты/обнаружение таблицы | `pdf_reader._read_page` | `test_converter.PdfTests` |
 | Вклинившаяся подпись к рисунку | `captions` | `test_captions` и контрольная книга |
 | Вертикальное имя на поле | `preprocessing.remove_marginal_credits` | `test_converter.PdfTests` и контрольная книга |
+| Повёрнутый текст внутри рисунка | `pdf_symbols` для значения знака, `preprocessing` для узких credits, `layout` для сохранения raw; общий фильтр рисунка отсутствует | `test_rotated_content`; [проверка PDF-08](quality.md#pdf-08-проверка-постановки) |
 | Порядок колонок, абзацы и списки | `layout_page`, `_blocks_for_lines` | `test_converter`, `test_continuations` |
 | Продолжение между страницами | `merge_continuations` | `test_continuations`, `Loyal Cadre` в контрольной книге |
 | Форма разрывает основной абзац | `forms`, защита в извлечении/предобработке, контейнер в `layout`, отдельная ветвь `merge_continuations` | `test_form_inserts`, физические страницы 4–6 локальной главы Character Creation |
