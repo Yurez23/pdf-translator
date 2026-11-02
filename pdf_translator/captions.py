@@ -12,7 +12,7 @@ from .geometry import contains, group_lines
 from .page_data import PageData
 from .models import BBox, Line, Word, union_bbox
 from .paragraphs import bold, italic
-from .text import is_list
+from .text import is_list, terminal
 
 
 def _overlap(a: BBox, b: BBox) -> float:
@@ -83,6 +83,37 @@ def _belongs_to_prose(line: Line, prose: list[Line], size: float) -> bool:
                                  and aligned)
             if matches >= 2 or followed_by_prose:
                 return True
+    return False
+
+
+def _continues_inline_prose(line: Line, lines: list[Line], prose: list[Line],
+                            page: PageData, body_style: tuple | None) -> bool:
+    """Keep an emphasis wrap after a mixed line already anchored in prose.
+
+    Do not add inferred tails to the prose/style seeds: an isolated label must
+    not bootstrap protection for its neighbours or elsewhere in the document.
+    """
+    if body_style is None or body_style[1] is None or is_list(line.text):
+        return False
+    size = page.body_size
+    styles = {_style([word]) for word in line.words}
+    for previous in lines:
+        if (not 0 <= line.bbox[1]-previous.bbox[3] <= size*.8
+                or abs(line.bbox[0]-previous.bbox[0]) > size*.35
+                or terminal(previous.text) or is_list(previous.text)
+                or _inside_protected(previous, page)):
+            continue
+        words = previous.words + line.words
+        if any(abs(word.size-size) > size*.08 or word.color != body_style[1]
+               for word in words):
+            continue
+        previous_styles = {_style([word]) for word in previous.words}
+        boundary = _style([previous.words[-1]])
+        if (body_style in previous_styles and boundary != body_style
+                and boundary == _style([line.words[0]])
+                and styles <= previous_styles
+                and _belongs_to_prose(previous, prose, size)):
+            return True
     return False
 
 
@@ -270,6 +301,8 @@ def remove_figure_captions(page: PageData, *, known_styles: set[tuple] | None = 
         # Distinct styling and proximity are insufficient if the line belongs
         # to a text column (e.g. a section heading over a decorated background).
         if _belongs_to_prose(line, prose, page.body_size):
+            continue
+        if _continues_inline_prose(line, lines, prose, page, body_style):
             continue
         related = _related_images(line, images, page.body_size)
         # Group the whole styled run, including lines extending beyond the
