@@ -61,7 +61,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/diagnostics.py](../pdf_translator/diagnostics.py) | Общий `DiagnosticError`: безопасная категория ожидаемой ошибки; не зависит от перевода или SDK. |
 | [pdf_translator/page_data.py](../pdf_translator/page_data.py) | Нейтральные `PageData` / `TableData` / `FormRegion`, без зависимости от движка вёрстки; необязательная коллекция областей форм сохраняет прежние позиционные аргументы. |
 | [pdf_translator/page_selection.py](../pdf_translator/page_selection.py) | Разбор физических 1-based диапазонов и последовательностей страниц. |
-| [pdf_translator/pdf_reader.py](../pdf_translator/pdf_reader.py) | Владение PDF-ресурсами, `_read_page`, объекты pdfplumber, закрытие страниц и перевод ошибок чтения. |
+| [pdf_translator/pdf_reader.py](../pdf_translator/pdf_reader.py) | Владение PDF-ресурсами, `_read_page`, объекты pdfplumber, рамки с проверкой непрерывности соседней прозы, закрытие страниц и перевод ошибок чтения. |
 | [pdf_translator/pdf_symbols.py](../pdf_translator/pdf_symbols.py) | PDF-адаптер: отдельный device/resource wrapper для CID/Encoding, программа шрифта, исходные глифы и вставка меток до извлечения слов и ячеек; без глобальных monkeypatch. |
 | [pdf_translator/symbols.py](../pdf_translator/symbols.py) | Нейтральные идентичности и общая нотация MD/TXT, проверенные контракты семейства/программы/CID/Unicode/имени глифа. |
 | [pdf_translator/symbol_geometry.py](../pdf_translator/symbol_geometry.py) | Нейтральное сравнение полных векторных контуров, частей и пропорций; отдельный неизвестный результат при достаточно характерном конфликте. |
@@ -134,6 +134,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_continuations.py](../tests/test_continuations.py) | `LabelLayoutTests`, `ContinuationRulesTests`: жирные начала, отступы, списки, кавычки/скобки, страницы/колонки и запреты на ошибочную склейку. |
 | [tests/test_paragraph_conventions.py](../tests/test_paragraph_conventions.py) | PDF-07: нейтральные модели и реальное извлечение синтетических PDF; полная фраза/заглавное начало, отступы и противоречия, новые абзацы, барьеры, выбор страниц, масштаб/шум, сохранение текста/строк/источников и локальная Endeavors. |
 | [tests/test_layout_recovery.py](../tests/test_layout_recovery.py) | Общие положительные/отрицательные проверки графических надписей, малых буллитов, абзацев/диалога; необязательные локальные регрессии Introduction. |
+| [tests/test_frame_boundaries.py](../tests/test_frame_boundaries.py) | PDF-09: ложная рамка декоративной заливки, непрерывность соседней прозы, обе стороны и масштабы, настоящие рамки, слабые признаки и защищённые структуры. |
 | [tests/test_book_recovery.py](../tests/test_book_recovery.py) | Межглавные регрессии: швы колонок/страниц, отступы, поля, цитаты, буквицы, overprint-пробелы и потерянные ячейки. |
 | [tests/test_diagrams.py](../tests/test_diagrams.py) | Положительные/отрицательные сетки карточек, отдельные владельцы текста и независимые локальные проверки карточек по исходным координатам. |
 | [tests/test_table_recovery.py](../tests/test_table_recovery.py) | Окрашенные таблицы, статблоки, сохранность ячеек и отрицательные примеры без привязки к именам книги; необязательные локальные регрессии. |
@@ -169,7 +170,7 @@ CLI: __main__ / console script → cli.main
 | [pyproject.toml](../pyproject.toml) | Версия, Python, зависимости, setuptools, console script и состав устанавливаемого пакета. |
 | [.gitignore](../.gitignore) | Исключения Git: окружения, сборка, кэши, пользовательские `example/` и `example.pdf`, результаты в `output/`, `tmp/` и логи. Общий шаблон содержит исключения для инструментов, которых проект не использует; это не список зависимостей. |
 | [README.md](../README.md) | Краткое описание, быстрый старт, примеры API и навигация по документации. |
-| [TODO.md](../TODO.md) | Выполненные нарезка, логирование, SOLID, async и восстановление ответов; отложенная живая сравнительная оценка размеров. |
+| [TODO.md](../TODO.md) | История нарезки, логирования, SOLID, async и PDF-01…PDF-08; активная очередь PDF-09…PDF-18 после ручного аудита, далёкая PDF-06 и отложенное живое сравнение размеров. |
 | [AGENTS.md](../AGENTS.md) | Обязательные границы полномочий, языки общения и правила независимого аудита. Это инструкции для агентов, не настройки конвертера. |
 | [docs/README.md](README.md) | Оглавление документации, маршруты чтения и границы покрытия. |
 | [docs/architecture.md](architecture.md) | Этот документ: карта файлов, зависимости и места изменения. |

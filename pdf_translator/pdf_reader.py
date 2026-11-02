@@ -12,7 +12,7 @@ from pdfplumber.utils.exceptions import PdfminerException
 from .captions import remove_background_captions, remove_figure_captions
 from .diagrams import card_panels
 from .forms import attach_form_labels, detect_form_regions
-from .geometry import body_size, contains
+from .geometry import body_size, contains, group_lines
 from .heading_context import learn_heading_context
 from .page_data import PageData, TableData
 from .page_selection import parse_pages
@@ -22,7 +22,7 @@ from .diagram_mappings import recover_cell_mappings
 from .preprocessing import integrate_dropcaps, remove_marginal_credits
 from .table_recovery import recover_painted_tables
 from .table_structure import CellPaint, recover_table_structure
-from .models import BBox, ConversionError, ConversionWarning, Word
+from .models import BBox, ConversionError, ConversionWarning, Line, Word
 from .text import normalize
 from .telemetry import emit, span
 
@@ -97,6 +97,53 @@ def _overprinted_spaces(chars) -> set[int]:
                 ignored.add(id(space))
                 break
     return ignored
+
+
+def _frame_cuts_body_flow(box: BBox, page: PageData, lines: list[Line]) -> bool:
+    """Reject a fill bbox that repeatedly claims a neighbouring prose tail.
+
+    A curved background's enclosing rectangle is not proof of text ownership.
+    Require two aligned, adjacent body lines with ordinary spacing and the same
+    face/colour across the cut; one ambiguous line leaves the frame unchanged.
+    Confirmed tables, forms and diagram cards cannot supply this evidence.
+    """
+    size = page.body_size
+    protected = [t.bbox for t in page.tables] + page.diagram_boxes
+    protected += [b for form in page.form_regions for b in (form.bbox, *form.attachments)]
+    candidates: list[tuple[bool, float, Line]] = []
+    for line in lines:
+        words = line.words
+        if (len(words) < 5 or any(not w.upright or abs(w.size-size) > size*.05
+                                 or any(g.symbol for g in w.glyphs)
+                                 or any(contains(b, w) for b in protected) for w in words)):
+            continue
+        face = (words[0].font, words[0].color)
+        if (any((w.font, w.color) != face for w in words)
+                or any(not 0 <= b.bbox[0]-a.bbox[2] <= size*.65
+                       for a, b in zip(words, words[1:]))):
+            continue
+        owned = [contains(box, w) for w in words]
+        # Only a prefix or suffix may be the intrusion, never a whole line or
+        # an interior span. Check an x edge, not a mixed-baseline top/bottom cut.
+        if sum(a != b for a, b in zip(owned, owned[1:])) != 1:
+            continue
+        inside = [w for w, yes in zip(words, owned) if yes]
+        outside = [w for w, yes in zip(words, owned) if not yes]
+        suffix = owned[-1]
+        edge = box[0] if suffix else box[2]
+        if (not line.bbox[0] < edge < line.bbox[2]
+                or len(outside) < 4 or sum(w.source_length for w in outside) < 20
+                or sum(w.source_length for w in outside) < 4*sum(w.source_length for w in inside)
+                or inside[-1].bbox[2]-inside[0].bbox[0] > size*3):
+            continue
+        anchor = outside[0].bbox[0] if suffix else outside[-1].bbox[2]
+        for previous_suffix, previous_anchor, previous in candidates:
+            if (suffix == previous_suffix and abs(anchor-previous_anchor) <= size*.5
+                    and 0 <= line.bbox[1]-previous.bbox[3] <= size*.8
+                    and (previous.words[0].font, previous.words[0].color) == face):
+                return True
+        candidates.append((suffix, anchor, line))
+    return False
 
 
 def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
@@ -198,6 +245,7 @@ def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
                         _text_color(r.get("non_stroking_color")))
               for r in clean.rects if r.get("fill")]
     data.tables = [recover_table_structure(table, words, paints) for table in data.tables]
+    frame_lines = group_lines([w for w in words if w.upright], data.body_size, split_gaps=True)
     # Filled boxes/curves frequently delimit sidebars; table cell fills do not.
     for shape in list(page.rects) + list(page.curves):
         if not shape.get("fill"):
@@ -213,6 +261,8 @@ def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
         if any(contains(t.bbox, Word("", box, 0)) for t in data.tables):
             continue
         if sum(len(w.text) for w in words if contains(box, w)) < 30:
+            continue
+        if box not in data.diagram_boxes and _frame_cuts_body_flow(box, data, frame_lines):
             continue
         if not any(all(abs(a-b) < 3 for a,b in zip(box, other)) for other in data.frames):
             data.frames.append(box)
