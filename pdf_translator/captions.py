@@ -9,6 +9,7 @@ import re
 from statistics import median
 
 from .geometry import contains, group_lines
+from .heading_context import styled
 from .page_data import PageData
 from .models import BBox, Line, Word, union_bbox
 from .paragraphs import bold, centered_quotation_lines, italic
@@ -83,6 +84,34 @@ def _belongs_to_prose(line: Line, prose: list[Line], size: float) -> bool:
                                  and aligned)
             if matches >= 2 or followed_by_prose:
                 return True
+    return False
+
+
+def _heads_noted_column(line: Line, lines: list[Line], prose_ids: set[int],
+                        page: PageData) -> bool:
+    """A column rule can tie a heading to prose across a short italic note."""
+    body = page.body_size
+    left, _, right, bottom = line.bbox
+    if not styled(line, body) or not any(
+        abs(rule[0]-left) <= body*.35 and abs(rule[1]-bottom) <= body*.6
+        and rule[2] >= right and rule[2]-rule[0] >= (right-left)*1.2
+        for rule in page.heading_rules
+    ):
+        return False
+    note_lines = 0
+    for following in lines:
+        gap = following.bbox[1]-bottom
+        if gap < 0 or abs(following.bbox[0]-left) > body*.35:
+            continue
+        if gap > body or not body*.85 <= following.size <= body*1.1:
+            return False
+        if not italic(following):
+            return (note_lines > 0 and id(following) in prose_ids
+                    and following.bbox[2] >= right)
+        note_lines += 1
+        if note_lines > 2:
+            return False
+        bottom = following.bbox[3]
     return False
 
 
@@ -320,6 +349,7 @@ def remove_figure_captions(page: PageData, *, known_styles: set[tuple] | None = 
             prose.extend(line for line in run if id(line) not in known)
     candidates: list[tuple[Line, set[int]]] = []
     quotation_lines = centered_quotation_lines(lines, page.body_size)
+    prose_ids = {id(line) for line in prose}
     for line in lines:
         if not (1 <= len(line.words) <= 14 and len(line.text) <= 120
                 and (line.size <= page.body_size*3 or _style(line.words) in known_styles
@@ -336,6 +366,9 @@ def remove_figure_captions(page: PageData, *, known_styles: set[tuple] | None = 
         if _starts_italic_prose(line, lines, prose, page, body_style):
             continue
         related = _related_images(line, images, page.body_size)
+        if (related and all(images[i][3] <= line.bbox[1] for i in related)
+                and _heads_noted_column(line, lines, prose_ids, page)):
+            continue
         # Group the whole styled run, including lines extending beyond the
         # image. Otherwise a long uncertain label could lose only its first
         # (narrower) line while the remaining lines survive.

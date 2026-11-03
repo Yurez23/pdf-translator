@@ -146,6 +146,41 @@ class CaptionTests(unittest.TestCase):
         self.assertIn('A Real Section', result.text)
         self.assertIn('These rules belong', result.text)
 
+    def test_ruled_heading_above_italic_note_and_prose_survives_image_proximity(self):
+        title = "Coastal Settlements"
+        note = ["The following account contains local legends.",
+                "Some details are disputed."]
+        ink = colors.Color(.2, .35, .55)
+
+        def convert(*, rule, column):
+            def draw(c):
+                prose(c)
+                picture(c, x=40, top=185, width=530, height=135)
+                text(c, [title], x=330, top=350, size=17, color=ink)
+                if rule:
+                    c.line(330, HEIGHT-350, 555, HEIGHT-350)
+                text(c, note, x=330, top=365, font="Times-Italic", leading=13)
+                if column:
+                    text(c, ["The port grew around the mouth of the river.",
+                             "Merchants later built a market by the old docks.",
+                             "The surviving records describe those early years."],
+                         x=330, top=392, leading=13)
+            return self.convert(draw)
+
+        result = convert(rule=True, column=True)
+        heading, = [b for b in result.blocks if b.text == title]
+        self.assertEqual(heading.kind, "heading")
+        self.assertGreater(heading.outline_level, 0)
+        for output in (result.markdown, result.text):
+            self.assertEqual(output.count(title), 1)
+            self.assertLess(output.index(title), output.index(note[0]))
+
+        for rule, column in ((True, False), (False, True)):
+            with self.subTest(rule=rule, column=column):
+                result = convert(rule=rule, column=column)
+                self.assertNotIn(title, result.markdown)
+                self.assertNotIn(title, result.text)
+
     def test_large_four_line_overlay_is_not_partially_removed(self):
         values=['First long overlaid line', 'Second long overlaid line',
                 'Third long overlaid line', 'Fourth long overlaid line']

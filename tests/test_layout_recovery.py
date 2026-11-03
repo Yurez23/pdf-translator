@@ -180,6 +180,7 @@ class IntroductionRegressionTests(unittest.TestCase):
     def test_document_hierarchy_excludes_diagram(self):
         headings = {b.text: b.level for b in self.result.blocks if b.kind == 'heading' and not b.role}
         for name, level in [('Introduction', 1), ('The Cosmere RPG', 2), ('Adventures on Roshar', 3),
+                            ('Welcome to Roshar', 2), ('History of Roshar', 3), ('True Desolation', 3),
                             ('Plot Die', 3), ('Raising the Stakes', 4)]:
             self.assertEqual(headings[name], level)
         self.assertFalse({'C', 'O O', '1 2 3 4 5 6', '2 4'} & headings.keys())
