@@ -77,3 +77,4 @@ class PageData:
     diagram_obstacles: list[BBox] = field(default_factory=list)
     diagram_mappings: list[DiagramStructure] = field(default_factory=list)
     diagram_arrows: list[DiagramPath] = field(default_factory=list)
+    circle_outlines: list[BBox] = field(default_factory=list)

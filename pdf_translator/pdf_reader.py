@@ -10,6 +10,7 @@ from pdfminer.pdfparser import PDFSyntaxError
 from pdfplumber.utils.exceptions import PdfminerException
 
 from .captions import remove_background_captions, remove_figure_captions
+from .circular_labels import circle_outline
 from .diagrams import card_panels
 from .forms import attach_form_labels, detect_form_regions
 from .geometry import body_size, contains, group_lines
@@ -241,6 +242,8 @@ def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
     data = PageData(page.page_number, page.width, page.height, words, body_size(words))
     data.images = [(im["x0"], im["top"], im["x1"], im["bottom"]) for im in page.images if not im.get("imagemask")]
     shapes = list(page.rects)+list(page.curves)
+    data.circle_outlines = list(dict.fromkeys(box for shape in page.curves
+                                            if (box := circle_outline(shape)) is not None))
     outlines = []
     for shape in shapes:
         if not shape.get("stroke"):

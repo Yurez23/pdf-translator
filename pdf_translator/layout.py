@@ -6,6 +6,7 @@ from collections import Counter
 from dataclasses import replace
 
 from .geometry import contains, group_lines
+from .circular_labels import circular_label_blocks
 from .diagram_geometry import recover_connections
 from .diagrams import join_card_title
 from .continuations import merge_continuations
@@ -301,9 +302,12 @@ def _ordered_region(lines: list[Line], specials: list[Block], page: PageData, bo
 
 def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
                  special_blocks: Sequence[Block] = ()) -> list[Block]:
-    upright = [w for w in page.words if w.upright]
-    rotated = [w for w in page.words if not w.upright]
     table_blocks = _table_blocks(page, lexicon, warn, resolver)
+    circular_labels, claimed, fallback = circular_label_blocks(page, table_blocks)
+    if fallback:
+        warn(ConversionWarning("graphic_text", "Фрагменты круговой надписи сохранены отдельно; проверьте их по PDF.", (page.number,)))
+    upright = [w for w in page.words if w.upright and id(w) not in claimed]
+    rotated = [w for w in page.words if not w.upright and id(w) not in claimed]
     table_boxes = [t.bbox for t in page.tables]
     words = [w for w in upright if not any(contains(box, w) for box in table_boxes)]
     def encloses(outer, inner):
@@ -342,7 +346,7 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
                                    lines=[line for child in children for line in child.lines],
                                    body_size=page.body_size, container_width=frame[2] - frame[0],
                                    container_left=frame[0], role="diagram_node" if is_card else ""))
-    specials = [b for b in table_blocks if id(b) not in owned_tables] + framed_blocks + list(special_blocks)
+    specials = [b for b in table_blocks if id(b) not in owned_tables] + framed_blocks + circular_labels + list(special_blocks)
     if page.diagram_boxes:
         region = union_bbox(page.diagram_boxes)
         diagram_parts = [b for b in specials if encloses(region,b.sources[0].bbox)]

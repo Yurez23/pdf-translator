@@ -69,6 +69,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/geometry.py](../pdf_translator/geometry.py) | `contains`, `body_size`, `group_lines`: общие координаты и строки. |
 | [pdf_translator/paragraphs.py](../pdf_translator/paragraphs.py) | Типографические правила вводных/висячих пунктов, продолжения жирной фразы, отступа новой первой строки и границы авторского курсива; без PDF SDK и I/O. |
 | [pdf_translator/paragraph_conventions.py](../pdf_translator/paragraph_conventions.py) | PDF-07: нейтральные образцы внутренних абзацных границ, вывод документного отступа и консервативное доказательство продолжения после законченного предложения; без извлечения, callbacks, экспорта и I/O. |
+| [pdf_translator/circular_labels.py](../pdf_translator/circular_labels.py) | Распознаёт векторные окружности, группирует текст на нижней дуге и сверяет склейку с таблицей. |
 | [pdf_translator/diagrams.py](../pdf_translator/diagrams.py) | Узкий геометрический детектор раздельных карточек: белые панели, повторяемые ширины, настоящие промежутки и корневые узлы; без интерпретации стрелок. |
 | [pdf_translator/pdf_diagrams.py](../pdf_translator/pdf_diagrams.py) | PDF-адаптер линейных paths, заполненных указателей и clipping; прямоугольные clip сохраняются, неподдержанные отсекаются от вывода связей. |
 | [pdf_translator/diagram_geometry.py](../pdf_translator/diagram_geometry.py) | Нейтральные DTO и вывод видимых связей, стыков, неразрешённых концов и направлений при отдельном доказательстве стрелки; без SDK/I/O/игровых правил. |
@@ -139,6 +140,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_caption_narratives.py](../tests/test_caption_narratives.py) | PDF-11. Начало курсивного описания, независимая привязка продолжения к прозе и сохранение фильтрации подписей. |
 | [tests/test_false_paragraph_boundaries.py](../tests/test_false_paragraph_boundaries.py) | PDF-12. Продолжения строк в абзацах, списках и карточках, переносы между выбранными страницами и структурные границы. |
 | [tests/test_book_recovery.py](../tests/test_book_recovery.py) | Межглавные регрессии: швы колонок/страниц, отступы, поля, цитаты, буквицы, overprint-пробелы и потерянные ячейки. |
+| [tests/test_circular_labels.py](../tests/test_circular_labels.py) | Синтетические PDF для подтверждённых круговых подписей, вывода с предупреждением и случая без окружности. |
 | [tests/test_diagrams.py](../tests/test_diagrams.py) | Положительные/отрицательные сетки карточек, отдельные владельцы текста и независимые локальные проверки карточек по исходным координатам. |
 | [tests/test_table_recovery.py](../tests/test_table_recovery.py) | Окрашенные таблицы, статблоки, сохранность ячеек и отрицательные примеры без привязки к именам книги; необязательные локальные регрессии. |
 | [tests/test_table_structure.py](../tests/test_table_structure.py) | PDF-02: реальные span/пустоты, составные шапки, групповые строки, ложная сетка, соседняя проза, конфликтующий fallback, символы и оба экспорта; необязательные регрессии всех заданных семейств. |
