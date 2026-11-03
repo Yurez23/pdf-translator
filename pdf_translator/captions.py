@@ -117,6 +117,34 @@ def _continues_inline_prose(line: Line, lines: list[Line], prose: list[Line],
     return False
 
 
+def _starts_italic_prose(line: Line, lines: list[Line], prose: list[Line],
+                         page: PageData, body_style: tuple | None) -> bool:
+    """Keep an italic opening whose shorter wrap has independent prose context.
+
+    A narrow continuation can meet the ordinary overlap test while its wider
+    opening cannot. Use the original prose anchors, never inferred protection,
+    and do not teach either prose or caption styles from this local evidence.
+    """
+    if (body_style is None or body_style[1] is None or not italic(line)
+            or terminal(line.text) or is_list(line.text)):
+        return False
+    size = page.body_size
+    style = _style(line.words)
+    for following in lines:
+        if (not 0 <= following.bbox[1]-line.bbox[3] <= size*.8
+                or abs(following.bbox[0]-line.bbox[0]) > size*.35
+                or following.bbox[2]-following.bbox[0] >= line.bbox[2]-line.bbox[0]
+                or not italic(following) or is_list(following.text)
+                or _inside_protected(following, page)):
+            continue
+        if any(abs(word.size-size) > size*.08 or word.color != body_style[1]
+               or _style([word]) != style for word in line.words+following.words):
+            continue
+        if _belongs_to_prose(following, prose, size):
+            return True
+    return False
+
+
 def _styled_runs(lines: list[Line], body: float) -> list[list[Line]]:
     """Group before eligibility checks, so an uncertain tail vetoes the run."""
     groups: list[list[Line]] = []
@@ -303,6 +331,8 @@ def remove_figure_captions(page: PageData, *, known_styles: set[tuple] | None = 
         if _belongs_to_prose(line, prose, page.body_size):
             continue
         if _continues_inline_prose(line, lines, prose, page, body_style):
+            continue
+        if _starts_italic_prose(line, lines, prose, page, body_style):
             continue
         related = _related_images(line, images, page.body_size)
         # Group the whole styled run, including lines extending beyond the

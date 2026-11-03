@@ -136,6 +136,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_layout_recovery.py](../tests/test_layout_recovery.py) | Общие положительные/отрицательные проверки графических надписей, малых буллитов, абзацев/диалога; необязательные локальные регрессии Introduction. |
 | [tests/test_frame_boundaries.py](../tests/test_frame_boundaries.py) | PDF-09: ложная рамка декоративной заливки, непрерывность соседней прозы, обе стороны и масштабы, настоящие рамки, слабые признаки и защищённые структуры. |
 | [tests/test_caption_continuations.py](../tests/test_caption_continuations.py) | PDF-10: продолжение обычной прозы с переходом к курсиву/жирному, полный синтетический PDF, настоящие подписи и отказы при слабых признаках. |
+| [tests/test_caption_narratives.py](../tests/test_caption_narratives.py) | PDF-11. Начало курсивного описания, независимая привязка продолжения к прозе и сохранение фильтрации подписей. |
 | [tests/test_book_recovery.py](../tests/test_book_recovery.py) | Межглавные регрессии: швы колонок/страниц, отступы, поля, цитаты, буквицы, overprint-пробелы и потерянные ячейки. |
 | [tests/test_diagrams.py](../tests/test_diagrams.py) | Положительные/отрицательные сетки карточек, отдельные владельцы текста и независимые локальные проверки карточек по исходным координатам. |
 | [tests/test_table_recovery.py](../tests/test_table_recovery.py) | Окрашенные таблицы, статблоки, сохранность ячеек и отрицательные примеры без привязки к именам книги; необязательные локальные регрессии. |

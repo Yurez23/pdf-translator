@@ -57,6 +57,7 @@ python -m unittest tests.test_headings tests.test_heading_structure -v
 python -m unittest tests.test_asides -v
 python -m unittest tests.test_frame_boundaries -v
 python -m unittest tests.test_caption_continuations -v
+python -m unittest tests.test_caption_narratives -v
 python -m unittest tests.test_form_inserts -v
 python -m unittest tests.test_converter.CliTests -v
 python -m unittest tests.test_converter.ReferencePdfTests -v
