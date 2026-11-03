@@ -72,6 +72,17 @@ def _overprinted_spaces(chars) -> set[int]:
         if char.get("upright", True):
             rows.setdefault((round(char["top"], 1), char["fontname"], round(char["size"], 1)), []).append(char)
     ignored = set()
+    for left, space, right in zip(chars, chars[1:], chars[2:]):
+        if (not space["text"].isspace() or not left["text"].isalpha()
+                or not right["text"].isalpha() or not _same_baseline(left, right)
+                or not _same_baseline(left, space)
+                or len({c["fontname"] for c in (left, space, right)}) != 1):
+            continue
+        tolerance = left["size"] * .025
+        if (abs(right["x0"] - left["x1"]) <= tolerance
+                and any(c["x0"] - tolerance <= space["x0"]
+                        and space["x1"] <= c["x1"] + tolerance for c in (left, right))):
+            ignored.add(id(space))
     for row in rows.values():
         letters = [c for c in row if c["text"].isalpha()]
         for space in (c for c in row if c["text"].isspace()):
@@ -97,6 +108,64 @@ def _overprinted_spaces(chars) -> set[int]:
                 ignored.add(id(space))
                 break
     return ignored
+
+
+def _same_baseline(left, right):
+    return (left["upright"] and right["upright"]
+            and all(c["matrix"][0] > 0 and abs(c["matrix"][1]) < .01 for c in (left, right))
+            and abs(left["matrix"][5] - right["matrix"][5]) <= min(left["size"], right["size"]) * .02
+            and left.get("non_stroking_color") == right.get("non_stroking_color"))
+
+
+def _join_split_words(items, chars):
+    """Repair word boundaries only between consecutive source glyphs."""
+    positions = {id(c): i for i, c in enumerate(chars)}
+    runs_with_spaces = {c["text_run"] for c in chars
+                        if c.get("text_run") is not None and c["text"].isspace()}
+    pending = None
+    for item in items:
+        if pending is None:
+            pending = item
+            continue
+        left, right = pending["chars"][-1], item["chars"][0]
+        if (positions[id(right)] != positions[id(left)] + 1
+                or not _same_baseline(left, right) or left.get("symbol") or right.get("symbol")
+                or not _split_boundary(pending, item, runs_with_spaces)):
+            yield pending
+            pending = item
+            continue
+        pending = dict(pending, text=pending["text"] + item["text"],
+                       chars=pending["chars"] + item["chars"],
+                       x1=max(pending["x1"], item["x1"]),
+                       top=min(pending["top"], item["top"]),
+                       bottom=max(pending["bottom"], item["bottom"]))
+    if pending is not None:
+        yield pending
+
+
+def _split_boundary(before, after, runs_with_spaces):
+    left, right = before["chars"][-1], after["chars"][0]
+    gap = (right["x0"] - left["x1"]) / left["size"]
+    if not -.025 <= gap <= .36:
+        return False
+    if before["text"].isdecimal() and after["text"].isdecimal():
+        # A smaller digit in a different face can fall outside the word's
+        # top band even though it shares the baseline and touches the number.
+        return (gap <= .025 and .65 <= right["size"] / left["size"] <= .85
+                and left["fontname"] != right["fontname"])
+    if not (left["text"].isalpha() and right["text"].isalpha()
+            and left["fontname"] == right["fontname"] and abs(left["size"] - right["size"]) < .05):
+        return False
+    run = left.get("text_run")
+    if run is not None and run == right.get("text_run"):
+        # A tight join can be split by a blank from another baseline.
+        # For wider tracking require a run that explicitly encodes spaces.
+        return gap <= .025 or run in runs_with_spaces
+    # A sheared glyph can have its own text-show operation in a positioned
+    # script. Require it to lean into its predecessor and a spaced right run.
+    return (len(before["chars"]) >= 2 and abs(left["matrix"][2]) >= left["size"] * .05
+            and left["x0"] < before["chars"][-2]["x1"]
+            and right.get("text_run") in runs_with_spaces)
 
 
 def _frame_cuts_body_flow(box: BBox, page: PageData, lines: list[Line]) -> bool:
@@ -150,11 +219,13 @@ def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
     page = glyph_page(page)
     clean = page.dedupe_chars(tolerance=0.5, extra_attrs=("fontname", "size"))
     clean = recover_symbols(clean, warn)
-    ignored_spaces = _overprinted_spaces(clean.chars)
+    source_chars = clean.chars
+    ignored_spaces = _overprinted_spaces(source_chars)
     if ignored_spaces:
         clean = clean.filter(lambda obj: id(obj) not in ignored_spaces)
     words = []
-    for item in clean.extract_words(x_tolerance=2, x_tolerance_ratio=0.18, y_tolerance=3, return_chars=True, expand_ligatures=True):
+    items = clean.extract_words(x_tolerance=2, x_tolerance_ratio=0.18, y_tolerance=3, return_chars=True, expand_ligatures=True)
+    for item in _join_split_words(items, source_chars):
         chars = item.get("chars", [])
         weights: Counter[float] = Counter(round(c["size"], 1) for c in chars)
         size = weights.most_common(1)[0][0] if weights else 10.0

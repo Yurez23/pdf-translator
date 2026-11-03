@@ -204,7 +204,7 @@ class OptionalAdventuringRotatedTests(unittest.TestCase):
                 self.assertEqual(result.markdown.count(r'\[opportunity\]'),3)
                 self.assertEqual([(w.code,w.pages) for w in result.warnings if w.code=='rotated_text'],[('rotated_text',(4,))])
                 self.assertEqual(raw[0].sources[0].page,4)
-                self.assertIn('Triggers when the fi nal Opportunity slot is fi lled.',result.text)
+                self.assertIn('Triggers when the final Opportunity slot is filled.',result.text)
                 self.assertIn('Reinforcements Arrive',result.text)
                 self.assertIn('Contributing to Events',result.text)
                 self.assertEqual(render(list(result.blocks)),(result.markdown,result.text))

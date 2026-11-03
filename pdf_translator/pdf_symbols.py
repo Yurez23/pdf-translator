@@ -69,6 +69,11 @@ class _GlyphDevice(PDFPageAggregatorWithMarkedContent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.font_digests = {}
+        self.text_run = 0
+
+    def render_string(self, *args):
+        self.text_run += 1
+        return super().render_string(*args)
 
     def paint_path(self, graphicstate, *args, **kwargs):
         before = len(self.cur_item._objs)
@@ -81,6 +86,7 @@ class _GlyphDevice(PDFPageAggregatorWithMarkedContent):
         advance = super().render_char(matrix, font, fontsize, scaling, rise, cid, ncs, graphicstate)
         item = self.cur_item._objs[-1]
         item.source_cid = cid
+        item.text_run = self.text_run
         # Hash only candidate symbol fonts. A family name alone never decodes.
         if "CosmereDingbats" in str(font.fontname):
             item.encoding_glyph = self.rsrcmgr.encodings.get(font, {}).get(cid, "")
@@ -109,6 +115,7 @@ class _GlyphPage(Page):
         result = super().process_object(obj)
         if result["object_type"] == "char":
             result["source_cid"] = getattr(obj, "source_cid", None)
+            result["text_run"] = getattr(obj, "text_run", None)
             result["font_sha256"] = getattr(obj, "font_sha256", "")
             result["encoding_glyph"] = getattr(obj, "encoding_glyph", "")
         elif result["object_type"] in ("line","curve","rect"):

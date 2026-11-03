@@ -37,6 +37,60 @@ def lines(canvas, text, *, x=50, top=110, size=10, leading=14, font="Helvetica")
         canvas.drawString(x, PAGE[1] - top - i * leading, line)
 
 
+class WordSpacingTests(unittest.TestCase):
+    def test_positioned_letters_preserve_source_spaces_hyphens_and_glyphs(self):
+        from pdf_translator.pdf_reader import _read_page
+
+        pdf = io.BytesIO()
+        canvas = Canvas(pdf, pagesize=PAGE)
+        # The first blank is painted entirely inside the preceding glyph.
+        # The next row uses extra tracking without emitting a blank glyph.
+        canvas.addLiteral("BT /F1 10 Tf 1 0 0 1 50 700 Tm [(a) 300 ( ) -22 (b well-known)] TJ ET")
+        canvas.addLiteral("BT /F1 10 Tf 1 0 0 1 50 680 Tm [(a) -330 (b next word)] TJ ET")
+        # The explicit space between the short fragments advances normally.
+        lines(canvas, ["a b + c"], top=132)
+        # A narrow but advancing space still separates words.
+        canvas.addLiteral("BT /F1 10 Tf 1 0 0 1 50 645 Tm [(a) 180 ( ) (b)] TJ ET")
+        # Two face changes with nearly identical x gaps. Only the aligned
+        # number should join, leaving the raised digit as its own word.
+        canvas.setFont("Helvetica", 16)
+        canvas.drawString(50, 630, "Section 4")
+        x = 50 + canvas.stringWidth("Section 4") + .1
+        canvas.drawString(50, 605, "Section 4")
+        canvas.setFont("Helvetica-Bold", 11.5)
+        canvas.drawString(x, 630, "2")
+        canvas.drawString(x, 610, "2")
+        canvas.save()
+
+        with pdfplumber.open(pdf) as document:
+            page = _read_page(document.pages[0], lambda warning: None)
+        words = [word.text for word in page.words]
+        self.assertEqual(words[:11], ["ab", "well-known", "ab", "next", "word", "a", "b", "+", "c", "a", "b"])
+        self.assertEqual(words.count("42"), 1)
+        self.assertEqual(words.count("4"), 1)
+        self.assertEqual(words.count("2"), 1)
+        number = next(word for word in page.words if word.text == "42")
+        self.assertEqual([glyph.text for glyph in number.glyphs], ["4", "2"])
+
+    def test_blank_from_another_baseline_does_not_split_a_tight_run(self):
+        from pdf_translator.pdf_reader import _read_page
+
+        pdf = io.BytesIO()
+        canvas = Canvas(pdf, pagesize=PAGE)
+        lines(canvas, ["out there"], top=92)
+        # This large blank starts over the 'o' in horizontal sort order.
+        canvas.setFont("Helvetica-Bold", 50)
+        canvas.drawString(50, 666.6, " ")
+        canvas.save()
+
+        with pdfplumber.open(pdf) as document:
+            source = document.pages[0]
+            raw_words = source.extract_words(x_tolerance_ratio=.18, y_tolerance=3)
+            self.assertEqual([word["text"] for word in raw_words], ["o", "ut", "there"])
+            page = _read_page(source, lambda warning: None)
+        self.assertEqual([word.text for word in page.words], ["out", "there"])
+
+
 class TextTests(unittest.TestCase):
     def join(self, fragments, lexicon=()):
         warnings = []

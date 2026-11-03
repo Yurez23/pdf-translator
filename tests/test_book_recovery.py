@@ -163,7 +163,8 @@ class BookRecoveryRulesTests(unittest.TestCase):
 
     def test_only_overprinted_not_real_spaces_are_removed(self):
         def char(text,x0,x1):
-            return dict(text=text,x0=x0,x1=x1,top=100,fontname='Font',size=10,upright=True)
+            return dict(text=text,x0=x0,x1=x1,top=100,fontname='Font',size=10,upright=True,
+                        matrix=(10,0,0,10,x0,100))
         before=char('e',50,55)
         overprint=char(' ',55,57)
         after=char('n',55,60)
