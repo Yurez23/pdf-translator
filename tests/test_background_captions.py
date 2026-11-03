@@ -120,6 +120,42 @@ class BackgroundCaptionTests(unittest.TestCase):
                             size=12 if mode=='ordinary_size' else 25)
                 self.assert_preserved(self.convert(draw),LABEL[:1] if mode=='single' else LABEL)
 
+    def test_compact_caption_beside_local_artwork_is_removed_as_a_run(self):
+        for values, center, art_x in (
+            (['A bright lantern in', 'the harbor'], 352, 333),
+            (['An old vessel', 'with sails raised', 'against the wind', 'at dawn'], 497, 286),
+        ):
+            with self.subTest(values=values):
+                def draw(c):
+                    background(c)
+                    prose(c)
+                    picture(c, x=art_x, top=350, width=180, height=190)
+                    caption(c, values, center=center, size=13, leading=11, font='Helvetica-Bold')
+                    caption(c, ['Useful map key'], center=center, top=500,
+                            size=13, font='Helvetica-Bold')
+                result = self.convert(draw)
+                for output in (result.text, result.markdown):
+                    for value in values:
+                        self.assertNotIn(value, output)
+                self.assert_preserved(result, ['Useful map key', 'ordinary text style.'])
+
+    def test_compact_run_requires_artwork_edge_and_prose_separation(self):
+        values = ['The watch tower', 'above the harbor']
+        for placement in ('background only', 'above prose'):
+            with self.subTest(placement=placement):
+                def draw(c):
+                    background(c)
+                    prose(c)
+                    if placement != 'background only':
+                        picture(c, x=390, top=350, width=200, height=190)
+                    caption(c, values, center=360, size=13, leading=11)
+                    if placement == 'above prose':
+                        text(c, ['The tower guards the entrance to the harbor.',
+                                 'Crews wait for its signal before entering.',
+                                 'The watch keeps ships away from the rocks.'],
+                             x=315, top=432)
+                self.assert_preserved(self.convert(draw), values)
+
     def test_sparse_page_reuses_strong_document_style_in_either_page_order(self):
         for reverse in (False,True):
             with self.subTest(reverse=reverse):

@@ -212,6 +212,24 @@ def _body_prose(page: PageData, lines: list[Line]) -> list[Line]:
     return list(result.values())
 
 
+def _beside_artwork(page: PageData, box: BBox, body: float) -> bool:
+    """The run sits on the side of a localized image, with a shared y band."""
+    center = (box[0]+box[2])/2
+    half_width = (box[2]-box[0])/2
+    # A transparent margin can extend past the visible illustration. Allow
+    # the center inside its bounds only when the run still crosses the edge.
+    inset = min(body*3, half_width)
+    for left, top, right, bottom in page.images:
+        width, height = right-left, bottom-top
+        if not (body*8 <= width <= page.width*.65 and body*4 <= height <= page.height*.65
+                and top <= box[1] and box[3] <= bottom+body):
+            continue
+        if any(-inset <= distance <= half_width+body*4
+               for distance in (left-center, center-right)):
+            return True
+    return False
+
+
 def remove_background_captions(pages: list[PageData]) -> None:
     """Conservative document pass for compact labels on composited artwork.
 
@@ -249,21 +267,36 @@ def remove_background_captions(pages: list[PageData]) -> None:
         local_prose = prose[page.number]
         body = median(line.size for line in local_prose) if local_prose else document_body
         body_style = _style([w for line in local_prose for w in line.words]) if local_prose else None
+        quotation_lines = centered_quotation_lines(lines[page.number], body)
         for group in _styled_runs(lines[page.number], body):
             style = _style(group[0].words)
             box = union_bbox([line.bbox for line in group])
             centers = [(line.bbox[0]+line.bbox[2])/2 for line in group]
             if not (2 <= len(group) <= 4 and sum(len(line.text) for line in group) <= 160
-                    and re.search(r'[.!?…]$', group[-1].text)
-                    and all(1 <= len(line.words) <= 14 and len(line.text) <= 120
-                            and body*1.8 < line.size <= body*3 for line in group)
+                    and all(1 <= len(line.words) <= 14 and len(line.text) <= 120 for line in group)
                     and max(centers)-min(centers) <= body
                     and box[2]-box[0] <= page.width*.6
                     and any(b[0] <= box[0] and b[1] <= box[1]
                             and box[2] <= b[2] and box[3] <= b[3] for b in backgrounds)):
                 continue
+            large_caption = (re.search(r'[.!?…]$', group[-1].text)
+                             and all(body*1.8 < line.size <= body*3 for line in group))
+            edge_caption = (
+                body_style is not None
+                and all(body*1.15 < line.size <= body*1.5 for line in group)
+                and max(centers)-min(centers) <= body*.35
+                and max(line.bbox[0] for line in group)-box[0] >= body*.5
+                and box[2]-box[0] <= body*12
+                and not any(id(line) in quotation_lines for line in group)
+                and not any(_overlap(box, diagram) > 0 and box[1] < diagram[3]
+                            and diagram[1] < box[3] for diagram in page.diagram_boxes)
+                and _beside_artwork(page, box, body)
+            )
+            if not (large_caption or edge_caption):
+                continue
             if (style in content_styles or any(_inside_protected(line, page)
-                    or italic(line) or all(bold(w) for w in line.words) or is_list(line.text)
+                    or italic(line) or (not edge_caption and all(bold(w) for w in line.words))
+                    or is_list(line.text)
                     or line.text.startswith(('“', '‘', '"', '«', '—'))
                     or any(g.symbol for w in line.words for g in w.glyphs) for line in group)):
                 continue
@@ -285,6 +318,10 @@ def remove_background_captions(pages: list[PageData]) -> None:
             strong = bool(body_style and style[0] != body_style[0]
                           and style[1] is not None and body_style[1] is not None
                           and style[1] != body_style[1])
+            if edge_caption:
+                if strong:
+                    candidates.append((page, group, style, True))
+                continue
             candidates.append((page, group, style, strong))
             if strong:
                 seeds.add(style)
