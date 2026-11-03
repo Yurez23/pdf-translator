@@ -9,8 +9,9 @@ from .geometry import contains, group_lines
 from .diagram_geometry import recover_connections
 from .continuations import merge_continuations
 from .headings import graphic_label
-from .paragraphs import (lead_in as _lead_in, hanging_entry, bold_continuation,
+from .paragraphs import (lead_in as _lead_in, bold, hanging_entry, bold_continuation,
                          italic, returns_left, style_boundary, hanging_run)
+from .paragraph_conventions import line_font
 from .page_data import PageData
 from .forms import encloses, overlaps
 from .models import BBox, Block, ConversionWarning, HyphenResolver, Line, SourceRegion, Word, union_bbox
@@ -76,7 +77,8 @@ def _blocks_for_lines(
     right = max((line.bbox[2] for line in normal), default=bounds[2])
     field_lines = set()
     for i, row in enumerate(lines):
-        if row.size <= body * 1.15 and row.text_without_symbols.endswith(":") and row.bold_start:
+        if (row.size <= body * 1.15 and row.text_without_symbols.endswith(":")
+                and row.bold_start and bold(row.words[-1])):
             field_lines.add(id(row))
             # A wrapped labelled field followed by an empty bold field is a
             # record, not a new bullet (and not a dialogue speaker exchange).
@@ -143,9 +145,18 @@ def _blocks_for_lines(
         marker_note = bool(re.match(r"^[*†‡]\s*\w",text)) and (
             line.size < body * .91 or all(italic(Line([w],w.bbox,w.size)) for w in line.words[1:])
             and any(b.kind=='heading' and '*' in b.text for b in result[-4:]))
-        footnote = marker_note or (line.size < body * 0.91 and line.bbox[1] > page.height * 0.72
-                    and (bool(re.match(r"^(?:\d+[.)]?|[*†‡])\s*\w", text))
-                         or any(0 <= line.bbox[1] - y < body * 5 for y in page.separators)))
+        footnote = marker_note
+        if line.size < body * 0.91 and line.bbox[1] > page.height * 0.72:
+            rules_above = [y for y in page.separators if 0 <= line.bbox[1] - y < body * 5]
+            prev = pending[-1] if pending else None
+            continuing = (prev is not None and kind != "footnote" and not _terminal(prev.text)
+                          and 0 <= line.bbox[1] - prev.bbox[3] <= line.size * .65
+                          and abs(line.bbox[0] - prev.bbox[0]) <= line.size * .45
+                          and abs(line.size - prev.size) <= line.size * .05
+                          and line_font(line) == line_font(prev)
+                          and all(y < prev.bbox[3] for y in rules_above))
+            footnote = (marker_note or bool(re.match(r"^(?:\d+[.)]?|[*†‡])\s*\w", text))
+                        or bool(rules_above) and not continuing)
         lead_in = _lead_in(line) and not (pending and bold_continuation(pending[-1], line))
         list_item = is_list(text) or lead_in and hanging_entry(lines, index, body) and id(line) not in field_lines
         new_kind = "footnote" if footnote else "list_item" if list_item else "paragraph"
@@ -156,6 +167,11 @@ def _blocks_for_lines(
             indent = (body * 0.65 < line.bbox[0] - anchor < body * 3
                       and line.bbox[0] > prev.bbox[0] + body * 0.5 and not under_cap)
             first_line_indent = returns_left(lines, index, anchor, body)
+            if (first_line_indent and kind == "list_item" and len(pending) > 1
+                    and text[:1].islower() and not _terminal(prev.text)
+                    and abs(line.bbox[0] - prev.bbox[0]) <= body * .35
+                    and 0 <= gap <= body * .65 and line_font(line) == line_font(prev)):
+                first_line_indent = False
             colon_label = _lead_in(line) and any(w.text.endswith(":") for w in line.words if any(
                 part in w.font.lower() for part in ("bold","demi","black")))
             if not _terminal(prev.text) and not list_item and not first_line_indent and not colon_label:

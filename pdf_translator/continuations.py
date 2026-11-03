@@ -9,6 +9,8 @@ from .paragraph_conventions import ParagraphConventions, line_font as _line_font
 
 type Warn = Callable[[ConversionWarning], None]
 
+_DETERMINER = r"(?:the|a|an|their|your|our|his|her|its|my|this|these|those)"
+
 
 def _closes_open_bracket(previous: str, following: str) -> bool:
     pairs = {"(": ")", "[": "]", "{": "}"}
@@ -39,7 +41,7 @@ def _continuation_start(previous: str, following: str) -> bool:
     start = following.lstrip("\"'‘“«")
     return (start[:1].islower() or previous.endswith(("-", ",", ";"))
             or start.startswith("(")
-            or bool(re.search(r"\b(?:the|a|an|their|your|our|his|her|its|my|this|these|those)$",previous,re.I))
+            or bool(re.search(rf"\b{_DETERMINER}$",previous,re.I))
             or _closes_open_bracket(previous, following))
 
 
@@ -59,6 +61,26 @@ def _continuation_alignment(previous: Block, following: Block) -> bool:
         hanging = previous.lines[-1].bbox[0] - previous.container_left
         return hanging > previous.body_size * 0.5 and abs(offset - hanging) <= tolerance
     return False
+
+
+def _capitalized_wrap(previous: Block, following: Block, between: list[Block]) -> bool:
+    """Recognize a split name at the page seam beside independent material."""
+    a, b = previous.sources[-1], following.sources[0]
+    if (b.page != a.page + 1 or not between or previous.role or following.role
+            or previous.kind != "paragraph" or len(previous.lines) < 2):
+        return False
+    last, first = previous.lines[-1], following.lines[0]
+    size = previous.body_size
+    return (first.bbox[0] == b.bbox[0]
+            and abs(first.bbox[0] - last.bbox[0]) <= size * .45
+            and abs(previous.container_width - following.container_width) <= previous.container_width * .15
+            and first.bbox[1] < last.bbox[1] - size * 4
+            and all(s.page == b.page and first.bbox[1] <= s.bbox[1] + size
+                    and (s.bbox[2] <= b.bbox[0] or s.bbox[0] >= b.bbox[2])
+                    for item in between for s in item.sources)
+            and bool(re.search(rf"\b{_DETERMINER} ([^\W\d_]\w*)$", last.text, re.I))
+            and last.words[-1].text[:1].isupper() and first.words[0].text[:1].isupper()
+            and first.words[0].text.isalpha())
 
 
 def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
@@ -106,7 +128,10 @@ def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, reso
             short_wrap = (next_column and len(prev.lines)>=2 and block.text[:1].islower()
                           and last.bbox[2]-last.bbox[0] >= prev.container_width*.6)
             unfinished = (not _terminal(prev.text) and (full_line or short_wrap or prev.text.endswith("-"))
-                    and _continuation_start(prev.text, block.text) and _continuation_alignment(prev, block)
+                    and (_continuation_start(prev.text, block.text)
+                         or (selected_pages is None or {a.page, b.page} <= selected_pages)
+                         and _capitalized_wrap(prev, block, between))
+                    and _continuation_alignment(prev, block)
                     and abs(first.size - last.size) <= prev.body_size * 0.15
                     and _line_font(first) == _line_font(last))
             # Independent structural evidence, separate from the historical
