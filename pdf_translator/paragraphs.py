@@ -1,6 +1,7 @@
 """Local typographic evidence for paragraphs and hanging labelled entries."""
 
 import re
+from collections import Counter
 
 from .models import Line
 from .text import is_list, terminal
@@ -16,6 +17,60 @@ def italic(line: Line) -> bool:
         part in w.font.lower() for part in ("italic", "oblique")))
     # A roman emphasized word inside an italic quotation does not end it.
     return bool(total) and marked >= total * .8
+
+
+def _display_style(line: Line) -> tuple[str, tuple[float, ...] | None]:
+    styles = Counter()
+    for word in line.words:
+        font = re.sub(r"^[A-Z]{6}\+", "", word.font).casefold()
+        styles[font, word.color] += word.source_length
+    return styles.most_common(1)[0][0]
+
+
+def _center(line: Line) -> float:
+    return (line.bbox[0] + line.bbox[2]) / 2
+
+
+def quotation_opener(first: Line, following: Line, body: float) -> bool:
+    """A completed roman line can introduce a matching centered italic run."""
+    font, color = _display_style(first)
+    next_font, next_color = _display_style(following)
+    face = r"[-, ]?(?:roman|regular|italic|oblique)$"
+    return (not italic(first) and italic(following) and not first.bold_start
+            and len(first.words) >= 4 and terminal(first.text) and not is_list(first.text)
+            and color == next_color and re.sub(face, "", font) == re.sub(face, "", next_font)
+            and abs(first.size - following.size) <= .5
+            and abs(_center(first) - _center(following)) <= body * .5
+            and 0 <= following.bbox[1] - first.bbox[3] <= body)
+
+
+def centered_quotation_lines(lines: list[Line], body: float) -> set[int]:
+    """Recognize sustained centered verse before short-label filtering."""
+    selected: set[int] = set()
+    start = 0
+    while start < len(lines):
+        first = lines[start]
+        if not (body * 1.15 <= first.size <= body * 1.8 and italic(first)):
+            start += 1
+            continue
+        style = _display_style(first)
+        end = start + 1
+        while end < len(lines):
+            line = lines[end]
+            if not (italic(line) and _display_style(line) == style
+                    and abs(line.size - first.size) <= .5
+                    and abs(_center(line) - _center(first)) <= body * .5
+                    and 0 <= line.bbox[1] - lines[end - 1].bbox[3] <= body):
+                break
+            end += 1
+        run = lines[start:end]
+        if (len(run) >= 5 and sum(terminal(line.text) for line in run) >= 2
+                and max(line.bbox[0] for line in run) - min(line.bbox[0] for line in run) >= body * 2):
+            selected.update(id(line) for line in run)
+            if start and quotation_opener(lines[start - 1], first, body):
+                selected.add(id(lines[start - 1]))
+        start = end
+    return selected
 
 
 def lead_in(line: Line) -> bool:

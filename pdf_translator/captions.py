@@ -11,7 +11,7 @@ from statistics import median
 from .geometry import contains, group_lines
 from .page_data import PageData
 from .models import BBox, Line, Word, union_bbox
-from .paragraphs import bold, italic
+from .paragraphs import bold, centered_quotation_lines, italic
 from .text import is_list, terminal
 
 
@@ -319,12 +319,13 @@ def remove_figure_captions(page: PageData, *, known_styles: set[tuple] | None = 
             known = {id(line) for line in prose}
             prose.extend(line for line in run if id(line) not in known)
     candidates: list[tuple[Line, set[int]]] = []
+    quotation_lines = centered_quotation_lines(lines, page.body_size)
     for line in lines:
         if not (1 <= len(line.words) <= 14 and len(line.text) <= 120
                 and (line.size <= page.body_size*3 or _style(line.words) in known_styles
                      and line.size <= page.body_size*4)):
             continue
-        if _inside_protected(line, page) or _style(line.words) == body_style:
+        if id(line) in quotation_lines or _inside_protected(line, page) or _style(line.words) == body_style:
             continue
         # Distinct styling and proximity are insufficient if the line belongs
         # to a text column (e.g. a section heading over a decorated background).

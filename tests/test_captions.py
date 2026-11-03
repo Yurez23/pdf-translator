@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import Table, TableStyle
 
@@ -54,6 +55,45 @@ class CaptionTests(unittest.TestCase):
         for output in (result.markdown, result.text):
             self.assertNotIn("PORTRAIT NAME", output)
             self.assertIn("Its words must be retained even near artwork.", output)
+
+    def test_centered_quotation_keeps_roman_opening_and_wide_italic_tail(self):
+        opening = "The lanterns must burn again."
+        verse = [
+            "The distant bells have sounded; the sailors return.",
+            "We wait for their arrival; the night is almost over.",
+            "The sea grows still.",
+            "The oldest songs recall the storm",
+            "and how the wind can fill a sail;",
+            "it can also tear even the strongest canvas before the dawn arrives.",
+        ]
+        ink = colors.Color(.4, .5, .6)
+
+        def centered(c, value, top, font):
+            text(c, [value], x=306 - stringWidth(value, font, 13) / 2,
+                 top=top, font=font, size=13, color=ink)
+
+        def draw(c):
+            prose(c)
+            text(c, ["A long ordinary paragraph anchors the page typography."] * 7, top=152)
+            picture(c, x=115, top=260, width=385, height=375)
+            centered(c, opening, 330, "Times-Roman")
+            for i, value in enumerate(verse):
+                centered(c, value, 350 + i * 17, "Times-Italic")
+            # An isolated caption can share the quote's size, color and face.
+            centered(c, "A distant harbor.", 605, "Times-Italic")
+
+        result = self.convert(draw)
+        quotes = [block for block in result.blocks if block.role == "quotation"]
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(quotes[0].children[0].text, opening)
+        self.assertIn(f"> {opening}", result.markdown)
+        tail = f"{verse[-2]} {verse[-1]}"
+        self.assertIn(tail, result.markdown)
+        self.assertIn(tail, result.text)
+        for output in (result.markdown, result.text):
+            self.assertEqual(output.count(opening), 1)
+            self.assertNotIn("A distant harbor.", output)
+        self.assertNotIn(f"# {opening}", result.markdown)
 
     def test_two_line_label_does_not_interrupt_a_sentence(self):
         def draw(c):

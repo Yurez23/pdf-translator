@@ -10,7 +10,8 @@ from .diagram_geometry import recover_connections
 from .continuations import merge_continuations
 from .headings import graphic_label
 from .paragraphs import (lead_in as _lead_in, bold, hanging_entry, bold_continuation,
-                         italic, returns_left, style_boundary, hanging_run)
+                         italic, returns_left, style_boundary, hanging_run,
+                         centered_quotation_lines, quotation_opener)
 from .paragraph_conventions import line_font
 from .page_data import PageData
 from .forms import encloses, overlaps
@@ -63,6 +64,7 @@ def _blocks_for_lines(
         return []
     lines = sorted(lines, key=lambda line: (line.bbox[1], line.bbox[0]))
     body = page.body_size
+    quotation_lines = centered_quotation_lines(lines, body)
     result: list[Block] = []
     pending: list[Line] = []
     kind = "paragraph"
@@ -99,9 +101,11 @@ def _blocks_for_lines(
             # Hanging indentation is useful for grouping, but cannot invent
             # a visible list marker absent from the source.
             labelled = kind == 'list_item' and not is_list(pending[0].text)
+            quotation = id(pending[0]) in quotation_lines
             result.append(Block(kind, text, (SourceRegion(page.number, bbox),),
                                 lines=pending, body_size=body, container_width=right-anchor,
-                                container_left=anchor,role='labelled_entry' if labelled else ''))
+                                container_left=anchor,
+                                role='quotation' if quotation else 'labelled_entry' if labelled else ''))
             pending = []
 
     for index, line in enumerate(lines):
@@ -126,7 +130,7 @@ def _blocks_for_lines(
                 and _lead_in(lines[index+1])
                 and 0 <= lines[index+1].bbox[1]-line.bbox[3] <= body * .8):
             is_heading = False
-        if is_heading:
+        if is_heading and id(line) not in quotation_lines:
             flush()
             # Final levels are assigned from all document styles after layout.
             level = 0
@@ -206,7 +210,8 @@ def _blocks_for_lines(
                         and (short_end or _terminal(prev.text))
                         or _terminal(prev.text) and prev.text.rstrip().endswith(('”','"'))
                         and text.startswith(('“','"')) and gap >= body*.5
-                        or bold_entry or italic_field_end or disconnected or style_boundary(prev, line, body))
+                        or bold_entry or italic_field_end or disconnected or style_boundary(prev, line, body)
+                        or (id(prev) in quotation_lines) != (id(line) in quotation_lines))
             if boundary:
                 flush()
         if not pending:
@@ -419,8 +424,9 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
     # Bottom-of-page footnotes should not split the main flow between columns.
     ordered = [b for b in ordered if b.kind != "footnote"] + [b for b in ordered if b.kind == "footnote"]
     for block in ordered:
-        if (block.kind in ("paragraph", "aside") and not block.children and block.lines
-                and all(italic(line) and line.size >= page.body_size * 1.15 for line in block.lines)):
+        if (block.role == "quotation" or
+                (block.kind in ("paragraph", "aside") and not block.children and block.lines
+                 and all(italic(line) and line.size >= page.body_size * 1.15 for line in block.lines))):
             block.kind = "aside"
             block.role = "quotation"
     quotations = []
@@ -431,14 +437,16 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
                 last = previous.children[-1] if previous.children else previous
                 a,b = last.sources[-1].bbox,block.sources[0].bbox
                 same_face = last.lines[0].words[0].font == block.lines[0].words[0].font
-                if (same_face and -page.body_size*.3 <= b[1]-a[3] <= page.body_size*1.5
+                opener = len(last.lines) == 1 and quotation_opener(last.lines[0], block.lines[0], page.body_size)
+                if ((same_face or opener) and -page.body_size*.3 <= b[1]-a[3] <= page.body_size*1.5
                         and min(a[2],b[2]) > max(a[0],b[0])):
                     if not previous.children:
                         previous.children = [Block('paragraph',previous.text,previous.sources,lines=list(previous.lines))]
                     previous.children.append(Block('paragraph',block.text,block.sources,lines=list(block.lines)))
                     previous.text += ' ' + block.text
                     previous.lines += block.lines
-                    previous.sources = (SourceRegion(page.number,union_bbox([a,b])),)
+                    start = previous.sources[0].bbox if not italic(previous.lines[0]) else a
+                    previous.sources = (SourceRegion(page.number,union_bbox([start,b])),)
                     continue
         quotations.append(block)
     ordered = quotations
