@@ -1,8 +1,44 @@
 """Recognize separated text-card grids without interpreting graphical edges."""
 
 from .geometry import contains
-from .models import BBox
+from .models import BBox, Block, SourceRegion, union_bbox
 from .page_data import PageData
+from .paragraphs import bold, italic
+from .text import terminal
+
+
+def join_card_title(children: list[Block], panel: BBox) -> None:
+    """Join a split, symbol-led title at the top of a confirmed card."""
+    if len(children) < 3:
+        return
+    first, second, following = children[:3]
+    if (first.kind not in ("heading", "paragraph") or first.role
+            or second.kind != "heading" or second.role
+            or len(first.lines) != 1 or len(second.lines) != 1
+            or not following.lines):
+        return
+    start, end, detail = first.lines[0], second.lines[0], following.lines[0]
+    symbol, *lettering = start.words
+    if (not symbol.glyphs or not all(g.symbol for g in symbol.glyphs) or not lettering
+            or any(g.symbol for word in (*lettering, *end.words) for g in word.glyphs)
+            or terminal(start.text_without_symbols) or not italic(detail)):
+        return
+    face = lettering[0]
+    if not all(bold(word) and (word.font, word.color) == (face.font, face.color)
+               and abs(word.size - face.size) <= .5 for word in (*lettering, *end.words)):
+        return
+    size = face.size
+    if (not 0 <= start.bbox[1] - panel[1] <= size
+            or not -size * .1 <= end.bbox[1] - start.bbox[3] <= size * .25
+            or not 0 <= detail.bbox[1] - end.bbox[3] <= size * .45
+            or abs(detail.text_left - start.bbox[0]) > size * .25
+            or min(abs(end.text_left - x) for x in (detail.text_left, start.text_left)) > size * .25):
+        return
+    # The glyph and both physical lines remain available in source order.
+    second.text = first.text + " " + second.text
+    second.lines = [start, end]
+    second.sources = (SourceRegion(first.sources[0].page, union_bbox([start.bbox, end.bbox])),)
+    children.pop(0)
 
 
 def card_panels(page: PageData, shapes) -> list[BBox]:

@@ -22,7 +22,7 @@ from pdf_translator import convert_pdf
 from pdf_translator.diagrams import card_panels
 from pdf_translator.export import render
 from pdf_translator.layout import layout_page
-from pdf_translator.models import Word
+from pdf_translator.models import Glyph, Word
 from pdf_translator.page_data import PageData
 from pdf_translator.pdf_reader import _read_page
 
@@ -209,6 +209,62 @@ class CardPanelDetectorTests(unittest.TestCase):
         for kwargs in ({"fill": False}, {"color": (0.8, 0.8, 0.8)}):
             with self.subTest(**kwargs):
                 self.assertEqual(card_panels(page, [shape(c.bbox, **kwargs) for c in cards()]), [])
+
+
+class WrappedCardTitleTests(unittest.TestCase):
+    def test_join_is_scoped_to_the_symbol_led_title_in_a_confirmed_panel(self):
+        panel = (50, 100, 165, 180)
+        neighbor = (175, 100, 290, 180)
+        title_font = "Helvetica-Bold"
+        symbol_box = (54, 104, 61, 114)
+        symbol = Glyph("★", "Icon", symbol_box, symbol="special activation")
+        title_start = Word("[special activation]", symbol_box, 10, "Icon", glyphs=(symbol,))
+        title_word = Word("Silver", (68, 104, 93, 114), 10, title_font)
+        detail = Word("Rank 2 required", (54, 126, 116, 135), 9, "Helvetica-Oblique")
+        prose = Word("Spend focus to act.", (54, 139, 133, 148), 9, "Helvetica")
+        other_title = Word("Moon Guard", (179, 104, 238, 114), 10, title_font)
+        other_body = Word("Take a defensive stance.", (179, 126, 280, 135), 9, "Helvetica")
+
+        for case in ("panel margin", "text indent", "other style", "second icon",
+                     "wide gap", "ordinary detail", "ordinary frame"):
+            with self.subTest(case=case):
+                left = 68 if case == "text indent" else 54
+                top = 119 if case == "wide gap" else 115
+                title_end = Word("Thread", (left, top, left + 37, top + 10), 10,
+                                 "Helvetica-Black" if case == "other style" else title_font)
+                prefix = []
+                if case == "second icon":
+                    box = (54, top, 61, top + 10)
+                    prefix = [replace(title_start, bbox=box, font=title_font,
+                                      glyphs=(replace(symbol, bbox=box),))]
+                    title_end = replace(title_end, bbox=(68, top, 105, top + 10))
+                following = detail
+                if case == "wide gap":
+                    following = replace(detail, bbox=(54, 130, 116, 139))
+                if case == "ordinary detail":
+                    following = replace(detail, font="Helvetica")
+                words = [title_start, title_word, *prefix, title_end, following, prose,
+                         other_title, other_body]
+                page = PageData(1, *PAGE, words, 9, frames=[panel, neighbor],
+                                diagram_boxes=[] if case == "ordinary frame" else [panel, neighbor])
+                blocks = layout_page(page, set(), lambda _: None)
+                card = next(b for b in walk_blocks(blocks) if b.sources[0].bbox == panel and b.children)
+                other = next(b for b in walk_blocks(blocks) if b.sources[0].bbox == neighbor and b.children)
+                self.assertEqual(other.children[0].text, "Moon Guard")
+                if case in ("panel margin", "text indent"):
+                    title = card.children[0]
+                    self.assertEqual((title.kind, title.role, title.outline_level), ("heading", "aside_title", 0))
+                    self.assertEqual(title.text, "[special activation] Silver Thread")
+                    self.assertEqual(title.sources[0].bbox, (54, 104, max(93, left + 37), 125))
+                    self.assertIs(title.lines[0].words[0].glyphs[0], symbol)
+                    self.assertEqual(len(title.lines), 2)
+                    self.assertTrue(card.children[1].text.startswith(detail.text))
+                    md, txt = render(blocks)
+                    self.assertIn(r"**\[special activation\] Silver Thread**", md)
+                    self.assertIn("[special activation] Silver Thread", txt)
+                else:
+                    self.assertEqual(card.children[0].text, "[special activation] Silver")
+                    self.assertTrue(card.children[1].text.endswith("Thread"))
 
 
 class CardPanelIntegrationTests(unittest.TestCase):

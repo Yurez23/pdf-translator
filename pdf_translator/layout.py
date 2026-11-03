@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from .geometry import contains, group_lines
 from .diagram_geometry import recover_connections
+from .diagrams import join_card_title
 from .continuations import merge_continuations
 from .headings import graphic_label
 from .paragraphs import (lead_in as _lead_in, bold, hanging_entry, bold_continuation,
@@ -329,6 +330,9 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
                 children.extend(_ordered_region(group_lines(column,page.body_size),tables,page,frame,lexicon,warn,resolver))
         else:
             children = _ordered_region(group_lines(inside,page.body_size),inner_tables,page,frame,lexicon,warn,resolver)
+        is_card = frame in page.diagram_boxes
+        if is_card:
+            join_card_title(children, frame)
         children = merge_continuations(children,lexicon,warn,resolver)
         for child in children:
             if child.kind == "heading":
@@ -337,7 +341,7 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
                                    (SourceRegion(page.number, frame),), children=children,
                                    lines=[line for child in children for line in child.lines],
                                    body_size=page.body_size, container_width=frame[2] - frame[0],
-                                   container_left=frame[0], role="diagram_node" if frame in page.diagram_boxes else ""))
+                                   container_left=frame[0], role="diagram_node" if is_card else ""))
     specials = [b for b in table_blocks if id(b) not in owned_tables] + framed_blocks + list(special_blocks)
     if page.diagram_boxes:
         region = union_bbox(page.diagram_boxes)
