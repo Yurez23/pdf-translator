@@ -51,7 +51,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/cli.py](../pdf_translator/cli.py) | `main`: аргументы, UTF-8 терминала, выбор режима переносов, предупреждения и ошибки. `_prompt_hyphen` / `_read_choice`: ответы пользователя. `_write_outputs`: защита от перезаписи, подготовка и запись MD/TXT. |
 | [pdf_translator/converter.py](../pdf_translator/converter.py) | `convert_pdf`: координация чтения, очистки, вёрстки, заголовков, продолжений и возврат результата в памяти. |
 | [pdf_translator/models.py](../pdf_translator/models.py) | Общие структуры: `Glyph`, `Word`, `Line`, `Block`, `SourceRegion`, результат, предупреждения и вопрос о переносе; типы `BBox`, `BlockKind`, `HyphenResolver`. `union_bbox` объединяет геометрию. |
-| [pdf_translator/layout.py](../pdf_translator/layout.py) | `layout_page`, `_blocks_for_lines`: внутристранничные блоки, колонки, списки, таблицы и вставки; без чтения PDF или межстраничной склейки. |
+| [pdf_translator/layout.py](../pdf_translator/layout.py) | Собирает внутристранничные блоки, колонки, списки, таблицы и вставки. Оставляет подтверждённые сноски возле их блоков и выделяет ряды знаков внутри рамок. |
 | [pdf_translator/captions.py](../pdf_translator/captions.py) | `remove_figure_captions`: обычные подписи у рисунков; `remove_background_captions`: отдельная строгая документная проверка групп на полностраничном фоне до layout/headings. Защищает основной текст, таблицы, их названия, рамочные вставки и формы; поля формы не обучают стиль удаляемой подписи. |
 | [pdf_translator/special_text.py](../pdf_translator/special_text.py) | До фильтра подписей отмечает подтверждённые цитаты, группы меток на рисунке и вспомогательные заголовки над сетками с явными указателями. |
 | [pdf_translator/headings.py](../pdf_translator/headings.py) | `graphic_label`, `HeadingStyle`, `assign_heading_levels`: классификация вхождений, повторяющиеся отношения и согласованная нумерация по всему документу, текущая цепочка родителей и точная глубина и консервативный fallback. |
@@ -140,6 +140,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_caption_continuations.py](../tests/test_caption_continuations.py) | PDF-10: продолжение обычной прозы с переходом к курсиву/жирному, полный синтетический PDF, настоящие подписи и отказы при слабых признаках. |
 | [tests/test_caption_narratives.py](../tests/test_caption_narratives.py) | PDF-11. Начало курсивного описания, независимая привязка продолжения к прозе и сохранение фильтрации подписей. |
 | [tests/test_special_text_recovery.py](../tests/test_special_text_recovery.py) | PDF-19. Выделенные цитаты, заголовки сеток, группы меток и однозначный `/ActualText`. Проверяет оба экспорта, соседний текст, настоящие подписи и области других блоков. |
+| [tests/test_attached_notes.py](../tests/test_attached_notes.py) | PDF-20. Положение сносок и ряда игровых знаков, исходные области, сохранение предупреждения для других повёрнутых фрагментов. |
 | [tests/test_false_paragraph_boundaries.py](../tests/test_false_paragraph_boundaries.py) | PDF-12. Продолжения строк в абзацах, списках и карточках, переносы между выбранными страницами и структурные границы. |
 | [tests/test_book_recovery.py](../tests/test_book_recovery.py) | Межглавные регрессии: швы колонок/страниц, отступы, поля, цитаты, буквицы, overprint-пробелы и потерянные ячейки. |
 | [tests/test_circular_labels.py](../tests/test_circular_labels.py) | Синтетические PDF для подтверждённых круговых подписей, вывода с предупреждением и случая без окружности. |
@@ -263,7 +264,7 @@ Gemini-адаптера и его identity, не знание ядра о wire f
 | Неправильные слова/координаты/обнаружение таблицы | `pdf_reader._read_page` | `test_converter.PdfTests` |
 | Вклинившаяся подпись к рисунку | `captions` | `test_captions` и контрольная книга |
 | Вертикальное имя на поле | `preprocessing.remove_marginal_credits` | `test_converter.PdfTests` и контрольная книга |
-| Повёрнутый текст внутри рисунка | `pdf_symbols` для значения знака, `preprocessing` для узких credits, `layout` для сохранения raw; общий фильтр рисунка отсутствует | `test_rotated_content`; [проверка PDF-08](quality.md#pdf-08-проверка-постановки) |
+| Повёрнутый текст внутри рисунка | `pdf_symbols` для значения знака, `preprocessing` для подписей художников, `layout` для размещения ряда или сохранения `raw` | `test_rotated_content`, `test_attached_notes`, [проверка PDF-08](quality.md#pdf-08-проверка-постановки) |
 | Порядок колонок, абзацы и списки | `layout_page`, `_blocks_for_lines` | `test_converter`, `test_continuations` |
 | Продолжение между страницами | `merge_continuations` | `test_continuations`, `Loyal Cadre` в контрольной книге |
 | Форма разрывает основной абзац | `forms`, защита в извлечении/предобработке, контейнер в `layout`, отдельная ветвь `merge_continuations` | `test_form_inserts`, физические страницы 4–6 локальной главы Character Creation |

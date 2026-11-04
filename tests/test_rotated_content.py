@@ -198,12 +198,20 @@ class OptionalAdventuringRotatedTests(unittest.TestCase):
         for selection in (None,'4'):
             with self.subTest(pages=selection):
                 result=convert_pdf(source,pages=selection,hyphen_resolver=lambda _:False)
-                raw=[b for b in result.blocks if b.role=='rotated']
-                self.assertEqual([b.text for b in raw],['[opportunity] [opportunity] [opportunity]'])
+                card=next(b for b in result.blocks if b.children and any(
+                    c.text=='Reinforcements Arrive' for c in b.children))
+                row=next(c for c in card.children if c.role=='symbol_row')
+                self.assertEqual(row.text,'[opportunity] [opportunity] [opportunity]')
+                index=card.children.index(row)
+                self.assertEqual(card.children[index-1].text,'Triggers when the final Opportunity slot is filled.')
+                self.assertEqual(card.children[index+1].text,'Reinforcements Arrive')
+                self.assertEqual([s.bbox for s in row.sources[1:]],[w.bbox for w in words])
+                self.assertEqual([asdict(w) for w in row.lines[0].words],before)
+                self.assertTrue(all(s.page==4 for s in row.sources))
                 self.assertEqual(result.text.count('[opportunity]'),3)
                 self.assertEqual(result.markdown.count(r'\[opportunity\]'),3)
-                self.assertEqual([(w.code,w.pages) for w in result.warnings if w.code=='rotated_text'],[('rotated_text',(4,))])
-                self.assertEqual(raw[0].sources[0].page,4)
+                self.assertFalse(any(w.code=='rotated_text' for w in result.warnings))
+                self.assertFalse(any(b.role=='rotated' for b in result.blocks))
                 self.assertIn('Triggers when the final Opportunity slot is filled.',result.text)
                 self.assertIn('Reinforcements Arrive',result.text)
                 self.assertIn('Contributing to Events',result.text)

@@ -54,7 +54,8 @@ they are short, small, bold, colored, or near artwork. Check the context visuall
 Extractable text objects over artwork can be useful rules, map/diagram labels,
 or game symbols. An image bbox and a rotated text matrix do not justify deletion.
 In particular, Adventuring physical page 4 contains three useful Opportunity
-slots retained by PDF-01; its `rotated_text` warning is not evidence of junk text.
+slots. PDF-01 retains their meanings, and PDF-20 places them within their event
+card. Older snapshots may report `rotated_text` for the same useful slots.
 
 Expected normalization includes ordinary whitespace cleanup, expanded ligatures,
 and removed soft hyphens. Ordinary line-end hyphens are conservative: ambiguous

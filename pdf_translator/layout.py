@@ -18,6 +18,7 @@ from .paragraph_conventions import line_font
 from .page_data import PageData
 from .forms import encloses, overlaps
 from .models import BBox, Block, ConversionWarning, HyphenResolver, Line, SourceRegion, Word, union_bbox
+from .symbols import LABELS
 from .text import is_list, join_lines, normalize, terminal as _terminal
 from collections.abc import Callable, Sequence
 
@@ -300,6 +301,76 @@ def _ordered_region(lines: list[Line], specials: list[Block], page: PageData, bo
     return result
 
 
+def _locally_attached_notes(blocks: list[Block], page: PageData) -> set[int]:
+    """Keep a marked note in flow only with nearby, matching source evidence."""
+    attached: set[int] = set()
+    size = page.body_size
+    for i, note in enumerate(blocks):
+        marker = re.match(r"^([*†‡])", note.text) if note.kind == "footnote" else None
+        if not marker or not i or len(note.sources) != 1:
+            continue
+        mark = marker[1]
+        box = note.sources[0].bbox
+        if box[1] > page.height * .72:
+            continue
+        previous = blocks[i-1]
+        if not previous.sources or any(source.page != note.sources[0].page for source in previous.sources):
+            continue
+        prevbox = previous.sources[0].bbox
+        gap = box[1] - prevbox[3]
+        if not (0 <= gap <= size * 1.5 and abs(box[0] - prevbox[0]) <= size * .6):
+            continue
+        if previous.kind == "table":
+            if box[2] <= prevbox[2] + size and any(mark in cell for row in previous.rows for cell in row):
+                attached.add(id(note))
+            continue
+        if previous.kind not in ("paragraph", "list_item"):
+            continue
+        # A trailing marker in the nearest preceding heading identifies a rule;
+        # intervening prose remains intact and another structural block stops it.
+        for candidate in reversed(blocks[:i-1]):
+            if (len(candidate.sources) != 1 or candidate.sources[0].page != note.sources[0].page
+                    or abs(candidate.sources[0].bbox[0] - box[0]) > size * .6):
+                break
+            if candidate.kind == "heading":
+                if re.search(re.escape(mark) + r"[\])}]*\s*$", candidate.text):
+                    attached.add(id(note))
+                break
+            if candidate.kind not in ("paragraph", "list_item"):
+                break
+    return attached
+
+
+def _framed_symbol_row(rotated: list[Word], frame: BBox, children: list[Block], page: PageData) -> tuple[Block | None, set[int]]:
+    """Recover a verified repeated symbol row bracketed by text in one frame."""
+    inside = [w for w in rotated if contains(frame, w)]
+    if len(inside) < 2:
+        return None, set()
+    identities = [w.glyphs[0].symbol if len(w.glyphs) == 1 else "" for w in inside]
+    identity = identities[0]
+    if (not identity or identity == "unknown" or any(symbol != identity for symbol in identities)
+            or identity not in LABELS or any(w.text != LABELS[identity] for w in inside)
+            or any(not encloses(frame, w.bbox) for w in inside)
+            or len({w.angle for w in inside}) != 1):
+        return None, set()
+    row = sorted(inside, key=lambda w: w.bbox[0])
+    size = page.body_size
+    if (max(w.bbox[1] for w in row) - min(w.bbox[1] for w in row) > size * .3
+            or max(w.bbox[3] for w in row) - min(w.bbox[3] for w in row) > size * .3
+            or any(a.bbox[2] > b.bbox[0] for a, b in zip(row, row[1:]))):
+        return None, set()
+    box = union_bbox([w.bbox for w in row])
+    boxes = [child.sources[0].bbox for child in children if child.sources]
+    if (not any(b[3] <= box[1] for b in boxes) or not any(b[1] >= box[3] for b in boxes)
+            or any(b[1] < box[3] and b[3] > box[1] for b in boxes)
+            or any(a[1] > b[1] for a, b in zip(boxes, boxes[1:]))):
+        return None, set()
+    sources = (SourceRegion(page.number, box),) + tuple(SourceRegion(page.number, w.bbox) for w in row)
+    return Block("paragraph", " ".join(w.text for w in row), sources,
+                 lines=[Line(row, box, max(w.size for w in row))],
+                 body_size=size, role="symbol_row"), {id(w) for w in row}
+
+
 def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
                  special_blocks: Sequence[Block] = ()) -> list[Block]:
     table_blocks = _table_blocks(page, lexicon, warn, resolver)
@@ -375,6 +446,12 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
                 children.extend(_ordered_region(group_lines(column,page.body_size),tables,page,frame,lexicon,warn,resolver))
         else:
             children = _ordered_region(group_lines(inside,page.body_size),inner_tables,page,frame,lexicon,warn,resolver)
+        symbol_row, owned_rotated = _framed_symbol_row(rotated, frame, children, page)
+        if symbol_row:
+            position = next(i for i, child in enumerate(children)
+                            if child.sources[0].bbox[1] >= symbol_row.sources[0].bbox[3])
+            children.insert(position, symbol_row)
+            rotated = [w for w in rotated if id(w) not in owned_rotated]
         is_card = frame in page.diagram_boxes
         if is_card:
             join_card_title(children, frame)
@@ -471,8 +548,10 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
             remaining_specials = [b for b in remaining_specials if id(b) not in special_ids]
             if boundary:
                 ordered.append(boundary)
-    # Bottom-of-page footnotes should not split the main flow between columns.
-    ordered = [b for b in ordered if b.kind != "footnote"] + [b for b in ordered if b.kind == "footnote"]
+    # Unattached page notes should not split the main flow between columns.
+    attached = _locally_attached_notes(ordered, page)
+    ordered = ([b for b in ordered if b.kind != "footnote" or id(b) in attached]
+               + [b for b in ordered if b.kind == "footnote" and id(b) not in attached])
     for block in ordered:
         if (block.role == "quotation" or
                 (block.kind in ("paragraph", "aside") and not block.children and block.lines
