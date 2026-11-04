@@ -310,6 +310,47 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
     rotated = [w for w in page.words if not w.upright and id(w) not in claimed]
     table_boxes = [t.bbox for t in page.tables]
     words = [w for w in upright if not any(contains(box, w) for box in table_boxes)]
+    recovered: list[Block] = []
+    recovered_words: set[int] = set()
+    for box in page.quotation_regions:
+        members = [w for w in words if contains(box, w)]
+        rows = group_lines(members, page.body_size, split_gaps=True)
+        if not rows:
+            continue
+        recovered.append(Block("aside", join_lines((row.text for row in rows), lexicon, page.number, warn, resolver),
+                               (SourceRegion(page.number, box),), lines=rows,
+                               body_size=page.body_size, role="quotation"))
+        used = {id(w) for w in members}
+        recovered_words.update(used)
+        words = [w for w in words if id(w) not in used]
+    for boxes in page.graphic_label_groups:
+        children = []
+        for box in boxes:
+            members = [w for w in words if contains(box, w)]
+            rows = group_lines(members, page.body_size, split_gaps=True)
+            if len(rows) != 1:
+                break
+            row = rows[0]
+            # The source can give an explicit logical character for a single
+            # visible glyph. Keep normal extraction everywhere else unchanged.
+            parts = []
+            for word in row.words:
+                raw = "".join(g.text for g in word.glyphs)
+                parts.append("".join(g.actual_text or g.text for g in word.glyphs)
+                             if word.glyphs and raw == word.text and not any(g.symbol for g in word.glyphs)
+                             else word.text)
+            children.append(Block("paragraph", " ".join(parts), (SourceRegion(page.number, box),),
+                                  lines=[row], body_size=page.body_size, role="graphic_label"))
+        if len(children) != len(boxes):
+            continue
+        used = {id(w) for child in children for row in child.lines for w in row.words}
+        recovered_words.update(used)
+        words = [w for w in words if id(w) not in used]
+        recovered.append(Block("aside", " ".join(child.text for child in children),
+                               (SourceRegion(page.number, union_bbox(list(boxes))),)
+                               + tuple(child.sources[0] for child in children), children=children,
+                               body_size=page.body_size, role="graphic_labels"))
+        warn(ConversionWarning("graphic_text", "Текст графического элемента сохранён отдельно; проверьте его смысл и структуру.", (page.number,)))
     def encloses(outer, inner):
         return (outer[0]-1 <= inner[0] and outer[1]-1 <= inner[1]
                 and inner[2] <= outer[2]+1 and inner[3] <= outer[3]+1)
@@ -346,7 +387,7 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
                                    lines=[line for child in children for line in child.lines],
                                    body_size=page.body_size, container_width=frame[2] - frame[0],
                                    container_left=frame[0], role="diagram_node" if is_card else ""))
-    specials = [b for b in table_blocks if id(b) not in owned_tables] + framed_blocks + circular_labels + list(special_blocks)
+    specials = [b for b in table_blocks if id(b) not in owned_tables] + framed_blocks + circular_labels + list(special_blocks) + recovered
     if page.diagram_boxes:
         region = union_bbox(page.diagram_boxes)
         diagram_parts = [b for b in specials if encloses(region,b.sources[0].bbox)]
@@ -368,10 +409,11 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
                               body_size=page.body_size,role='diagram',diagram=structure))
     # A sidebar may be the only text in one column; it still establishes
     # the gutter even though its words are processed in a separate container.
-    flow_words = [w for w in upright if not any(contains(box,w) for box in table_boxes+frames+(
+    flow = [w for w in upright if id(w) not in recovered_words]
+    flow_words = [w for w in flow if not any(contains(box,w) for box in table_boxes+frames+(
         [union_bbox(page.diagram_boxes)] if page.diagram_boxes else []))]
     gutter = _gutter(flow_words,page) or _gutter(
-        [w for w in upright if not any(contains(box,w) for box in table_boxes)],page) or _gutter(upright,page)
+        [w for w in flow if not any(contains(box,w) for box in table_boxes)],page) or _gutter(flow,page)
     bounds = union_bbox([w.bbox for w in words]) if words else (0, 0, page.width, page.height)
     if gutter is None:
         ordered = _ordered_region(group_lines(words, page.body_size, split_gaps=True), specials, page, bounds, lexicon, warn, resolver)

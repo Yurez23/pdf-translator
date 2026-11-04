@@ -9,6 +9,7 @@ import hashlib
 from pdfminer.pdftypes import resolve1
 from pdfminer.latin_enc import ENCODING
 from pdfminer.psparser import PSLiteral
+from pdfminer.utils import decode_text
 from pdfplumber.page import Page, PDFPageAggregatorWithMarkedContent
 from pdfplumber.utils.exceptions import PdfminerException
 
@@ -70,6 +71,24 @@ class _GlyphDevice(PDFPageAggregatorWithMarkedContent):
         super().__init__(*args, **kwargs)
         self.font_digests = {}
         self.text_run = 0
+        self.actual_text_stack = []
+
+    def begin_tag(self, tag, props=None):
+        super().begin_tag(tag, props)
+        raw = resolve1(props.get("ActualText")) if isinstance(props, dict) else None
+        actual = decode_text(raw) if isinstance(raw, bytes) else ""
+        self.actual_text_stack.append((actual, [] if len(actual) == 1 and actual.isprintable() else None))
+
+    def end_tag(self):
+        if self.actual_text_stack:
+            actual, characters = self.actual_text_stack.pop()
+            # Applying multi-glyph replacement requires a separate alignment
+            # policy. Keep just explicit single-character substitutions here.
+            if characters is not None and len(characters) == 1:
+                item = characters[0]
+                if not getattr(item, "actual_text", ""):
+                    item.actual_text = actual
+        super().end_tag()
 
     def render_string(self, *args):
         self.text_run += 1
@@ -85,6 +104,9 @@ class _GlyphDevice(PDFPageAggregatorWithMarkedContent):
     def render_char(self, matrix, font, fontsize, scaling, rise, cid, ncs, graphicstate):
         advance = super().render_char(matrix, font, fontsize, scaling, rise, cid, ncs, graphicstate)
         item = self.cur_item._objs[-1]
+        for _, characters in self.actual_text_stack:
+            if characters is not None and len(characters) < 2:
+                characters.append(item)
         item.source_cid = cid
         item.text_run = self.text_run
         # Hash only candidate symbol fonts. A family name alone never decodes.
@@ -118,6 +140,7 @@ class _GlyphPage(Page):
             result["text_run"] = getattr(obj, "text_run", None)
             result["font_sha256"] = getattr(obj, "font_sha256", "")
             result["encoding_glyph"] = getattr(obj, "encoding_glyph", "")
+            result["actual_text"] = getattr(obj, "actual_text", "")
         elif result["object_type"] in ("line","curve","rect"):
             clip = getattr(obj,"diagram_clip",None)
             result["diagram_clip"] = (clip[0],self.height-clip[3],clip[2],self.height-clip[1]) if clip else None
@@ -244,4 +267,5 @@ def glyph_provenance(char):
     return Glyph(char.get("raw_text", char["text"]), char["fontname"],
                  char.get("symbol_bbox", tuple(char[k] for k in ("x0", "top", "x1", "bottom"))),
                  char.get("source_cid"), char.get("font_sha256", ""),
-                 char.get("symbol", ""), char.get("origin", "text"), char.get("encoding_glyph", ""))
+                 char.get("symbol", ""), char.get("origin", "text"), char.get("encoding_glyph", ""),
+                 char.get("actual_text", ""))

@@ -218,10 +218,12 @@ class IntroductionRegressionTests(unittest.TestCase):
         self.assertTrue(any(b.text.startswith('The players briefly discuss') for b in self.result.blocks))
 
     def test_framed_sidebars_and_source_geometry_are_preserved(self):
-        self.assertEqual(sum(b.kind == 'aside' and bool(b.children) and b.role != 'quotation'
-                             for b in self.result.blocks), 4)
-        # A multi-paragraph literary quotation is a separate container, not
-        # an extra framed sidebar.
+        sidebars = [(b.sources[0].page, b.children[0].text) for b in self.result.blocks
+                    if b.kind == 'aside' and b.children and not b.role]
+        self.assertEqual(sidebars, [(2, 'Adapting the Stormlight Archive'), (4, 'Era of Play'),
+                                   (5, 'GMs, Players, and You'), (10, 'Choosing Opportunities and Complications')])
+        diagram, = [b for b in self.result.blocks if b.role == 'cell_diagram']
+        self.assertEqual((diagram.sources[0].page, diagram.children[0].text), (8, 'Plot Die'))
         self.assertTrue(any(b.role == 'quotation' and b.children for b in self.result.blocks))
         for b in self.result.blocks:
             self.assertNotIn('\n', b.text)

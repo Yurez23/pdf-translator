@@ -20,6 +20,12 @@ def render(blocks: list[Block]) -> tuple[str, str]:
     md: list[str] = []
     txt: list[str] = []
     for block in blocks:
+        if block.role == "cell_diagram" and block.children:
+            # Preserve the existing cell-row rendering; only add title ownership.
+            child_md, child_txt = render(block.children)
+            md.append(child_md.rstrip("\n"))
+            txt.append(child_txt.rstrip("\n"))
+            continue
         content=annotate_cells(block) if block.diagram and block.diagram.status in ('cells','correspondence') else block.text
         if block.kind == "table":
             rows = [[_escape(cell).replace("|", r"\|") for cell in row] for row in block.rows]
@@ -50,6 +56,10 @@ def render(blocks: list[Block]) -> tuple[str, str]:
                 inner_md="\n\n".join(inner_mds)+"\n";inner_txt="\n\n".join(inner_txts)+"\n"
             else:
                 inner_md, inner_txt = render(block.children)
+            if block.role == "graphic_labels":
+                notice = "Graphic labels are listed in source order; their visual associations are not reconstructed. Check the source PDF."
+                inner_md = inner_md.rstrip("\n") + "\n\n" + notice + "\n"
+                inner_txt = inner_txt.rstrip("\n") + "\n\n" + notice + "\n"
             # Quoted blank lines keep paragraphs in ONE CommonMark blockquote.
             # A bare blank line would terminate it and create separate boxes.
             md.append("\n".join("> " + line if line else ">" for line in inner_md.rstrip("\n").split("\n")))

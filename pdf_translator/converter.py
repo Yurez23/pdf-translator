@@ -63,7 +63,7 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
         with span("conversion.page_layout", page=page.number, selected=page.number in selected_pages):
             if page.number in selected_pages:
                 page_blocks=layout_page(page, lexicon, warn, hyphen_resolver)
-                attach_mappings(page_blocks,page.diagram_mappings)
+                attach_mappings(page_blocks,page.diagram_mappings,page=page)
                 document_blocks.extend(page_blocks)
             else:
                 document_blocks.extend(layout_page(page, set(), lambda _: None))

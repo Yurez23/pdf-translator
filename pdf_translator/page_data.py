@@ -78,3 +78,6 @@ class PageData:
     diagram_mappings: list[DiagramStructure] = field(default_factory=list)
     diagram_arrows: list[DiagramPath] = field(default_factory=list)
     circle_outlines: list[BBox] = field(default_factory=list)
+    # Confirmed before caption filtering; individual label boxes retain order.
+    quotation_regions: list[BBox] = field(default_factory=list)
+    graphic_label_groups: list[tuple[BBox, ...]] = field(default_factory=list)

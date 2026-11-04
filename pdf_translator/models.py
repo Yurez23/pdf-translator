@@ -53,6 +53,7 @@ class Glyph:
     symbol: str = ""
     origin: str = "text"
     glyph_name: str = ""
+    actual_text: str = ""
 
 
 @dataclass

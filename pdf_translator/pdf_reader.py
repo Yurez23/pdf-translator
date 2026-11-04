@@ -21,6 +21,7 @@ from .pdf_symbols import glyph_page, glyph_provenance, recover_symbols
 from .pdf_diagrams import extract_paths, extract_mapping_geometry, extract_arrows
 from .diagram_mappings import recover_cell_mappings
 from .preprocessing import integrate_dropcaps, remove_marginal_credits
+from .special_text import recognize_special_text
 from .table_recovery import recover_painted_tables
 from .table_structure import CellPaint, recover_table_structure
 from .models import BBox, ConversionError, ConversionWarning, Line, Word
@@ -381,6 +382,8 @@ def read_pdf(source, pages, warn):
                         emit("conversion.page_stats", words=len(data.words), tables=len(data.tables))
                 finally:
                     page.close()
+            for data in extracted:
+                recognize_special_text(data)
             learn_heading_context(extracted)
             for data in extracted:
                 with span("conversion.captions_filter"):

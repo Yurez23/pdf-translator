@@ -34,6 +34,8 @@ def _style(words: list[Word]) -> tuple[str, tuple[float, ...] | None]:
 def _inside_protected(line: Line, page: PageData) -> bool:
     protected = ([table.bbox for table in page.tables] + page.frames
                  + [box for form in page.form_regions for box in (form.bbox, *form.attachments)]
+                 + [node.source.bbox for mapping in page.diagram_mappings for node in mapping.nodes]
+                 + page.quotation_regions + [box for group in page.graphic_label_groups for box in group]
                  + [hint.bbox for hint in page.heading_hints if hint.protect])
     if any(any(contains(box, word) for word in line.words) for box in protected):
         return True

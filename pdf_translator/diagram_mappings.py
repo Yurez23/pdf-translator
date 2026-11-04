@@ -1,7 +1,7 @@
 """Explicit triangular pointers between repeated, separately framed cells."""
 
 from .diagram_geometry import DiagramConnection, DiagramNode, DiagramStructure, _inside
-from .models import SourceRegion
+from .models import Block, SourceRegion, union_bbox
 
 
 def recover_cell_mappings(cells, pointers, words, marks, *, page, size):
@@ -54,7 +54,7 @@ def recover_cell_mappings(cells, pointers, words, marks, *, page, size):
     return results
 
 
-def attach_mappings(blocks, structures):
+def attach_mappings(blocks, structures, *, page=None):
     """Annotate retained graphic-label words without moving source text."""
     from dataclasses import replace
     leaves=[]
@@ -77,3 +77,26 @@ def attach_mappings(blocks, structures):
             b.diagram=replace(structure,connections=(),status='cells')
             if b.kind=='heading':b.role='graphic_label'
         owners[-1].diagram=structure
+        if page is None:
+            continue
+        # Only wrap a contiguous set of top-level cell blocks and one strongly
+        # centered title. This creates ownership without moving other content.
+        region = union_bbox([n.source.bbox for n in structure.nodes])
+        hints = [h for h in page.heading_hints if h.scope == 'cell_diagram'
+                 and 0 <= region[1]-h.bbox[3] <= page.body_size*1.5
+                 and region[0] <= h.bbox[0] < h.bbox[2] <= region[2]]
+        titles = [b for b in blocks if b.kind == 'heading' and len(hints) == 1
+                  and b.sources[0].bbox == hints[0].bbox]
+        positions = [i for i,b in enumerate(blocks) if any(b is owner for owner in owners)]
+        if len(titles) != 1 or len(positions) != len(owners):
+            continue
+        title = titles[0]
+        title_pos = next(i for i,b in enumerate(blocks) if b is title)
+        if positions != list(range(title_pos+1, title_pos+1+len(owners))):
+            continue
+        title.role = 'aside_title'
+        children = blocks[title_pos:positions[-1]+1]
+        box = union_bbox([title.sources[0].bbox, region])
+        blocks[title_pos:positions[-1]+1] = [Block('aside', ' '.join(b.text for b in children),
+                                                   (SourceRegion(page.number, box),), children=children,
+                                                   body_size=page.body_size, role='cell_diagram')]

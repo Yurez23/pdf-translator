@@ -53,6 +53,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/models.py](../pdf_translator/models.py) | Общие структуры: `Glyph`, `Word`, `Line`, `Block`, `SourceRegion`, результат, предупреждения и вопрос о переносе; типы `BBox`, `BlockKind`, `HyphenResolver`. `union_bbox` объединяет геометрию. |
 | [pdf_translator/layout.py](../pdf_translator/layout.py) | `layout_page`, `_blocks_for_lines`: внутристранничные блоки, колонки, списки, таблицы и вставки; без чтения PDF или межстраничной склейки. |
 | [pdf_translator/captions.py](../pdf_translator/captions.py) | `remove_figure_captions`: обычные подписи у рисунков; `remove_background_captions`: отдельная строгая документная проверка групп на полностраничном фоне до layout/headings. Защищает основной текст, таблицы, их названия, рамочные вставки и формы; поля формы не обучают стиль удаляемой подписи. |
+| [pdf_translator/special_text.py](../pdf_translator/special_text.py) | До фильтра подписей отмечает подтверждённые цитаты, группы меток на рисунке и вспомогательные заголовки над сетками с явными указателями. |
 | [pdf_translator/headings.py](../pdf_translator/headings.py) | `graphic_label`, `HeadingStyle`, `assign_heading_levels`: классификация вхождений, повторяющиеся отношения и согласованная нумерация по всему документу, текущая цепочка родителей и точная глубина и консервативный fallback. |
 | [pdf_translator/text.py](../pdf_translator/text.py) | `normalize`: пробелы, Unicode, лигатуры. `vocabulary`: словарь выбранного текста. `is_list`: явные маркеры. `join_lines`: склейка строк, переносы и вызов обработчика неоднозначностей. |
 | [pdf_translator/export.py](../pdf_translator/export.py) | `render`: одинаковый набор блоков в Markdown и TXT, экранирование, таблицы, списки, рекурсивные вставки. Не читает PDF и не пишет файлы. |
@@ -62,7 +63,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/page_data.py](../pdf_translator/page_data.py) | Нейтральные `PageData` / `TableData` / `FormRegion`, без зависимости от движка вёрстки; необязательная коллекция областей форм сохраняет прежние позиционные аргументы. |
 | [pdf_translator/page_selection.py](../pdf_translator/page_selection.py) | Разбор физических 1-based диапазонов и последовательностей страниц. |
 | [pdf_translator/pdf_reader.py](../pdf_translator/pdf_reader.py) | Владение PDF-ресурсами, `_read_page`, объекты pdfplumber, рамки с проверкой непрерывности соседней прозы, закрытие страниц и перевод ошибок чтения. |
-| [pdf_translator/pdf_symbols.py](../pdf_translator/pdf_symbols.py) | PDF-адаптер: отдельный device/resource wrapper для CID/Encoding, программа шрифта, исходные глифы и вставка меток до извлечения слов и ячеек; без глобальных monkeypatch. |
+| [pdf_translator/pdf_symbols.py](../pdf_translator/pdf_symbols.py) | Локальный PDF-адаптер CID/Encoding и программ шрифтов. Сохраняет исходные глифы и однозначные одиночные символы `/ActualText`. Вставляет игровые метки до извлечения слов и ячеек. |
 | [pdf_translator/symbols.py](../pdf_translator/symbols.py) | Нейтральные идентичности и общая нотация MD/TXT, проверенные контракты семейства/программы/CID/Unicode/имени глифа. |
 | [pdf_translator/symbol_geometry.py](../pdf_translator/symbol_geometry.py) | Нейтральное сравнение полных векторных контуров, частей и пропорций; отдельный неизвестный результат при достаточно характерном конфликте. |
 | [pdf_translator/symbol_signatures.py](../pdf_translator/symbol_signatures.py) | Изолированные нормализованные сигнатуры с доказательствами в документации; без условий по странице, названию или прозе. |
@@ -73,7 +74,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/diagrams.py](../pdf_translator/diagrams.py) | Узкий геометрический детектор раздельных карточек: белые панели, повторяемые ширины, настоящие промежутки и корневые узлы; без интерпретации стрелок. |
 | [pdf_translator/pdf_diagrams.py](../pdf_translator/pdf_diagrams.py) | PDF-адаптер линейных paths, заполненных указателей и clipping; прямоугольные clip сохраняются, неподдержанные отсекаются от вывода связей. |
 | [pdf_translator/diagram_geometry.py](../pdf_translator/diagram_geometry.py) | Нейтральные DTO и вывод видимых связей, стыков, неразрешённых концов и направлений при отдельном доказательстве стрелки; без SDK/I/O/игровых правил. |
-| [pdf_translator/diagram_mappings.py](../pdf_translator/diagram_mappings.py) | Подтверждение соответствий рядов ячеек по отдельным треугольным указателям; присоединение метаданных к исходным блокам без переноса слов. |
+| [pdf_translator/diagram_mappings.py](../pdf_translator/diagram_mappings.py) | Подтверждает соответствия рядов ячеек по отдельным треугольным указателям и присоединяет метаданные к исходным блокам. Объединяет смежные блоки ячеек с подтверждённым заголовком в одной области схемы. |
 | [pdf_translator/diagram_export.py](../pdf_translator/diagram_export.py) | Оформление готовых N/J/U/C-ссылок и точных аннотаций ячеек; не извлекает PDF и не назначает связи. |
 | [pdf_translator/forms.py](../pdf_translator/forms.py) | Нейтральный детектор областей форм PDF-03 по полям и меткам, дедупликация обводок и консервативные отказы. Без PDF SDK, экспорта, сети или I/O. |
 | [pdf_translator/table_recovery.py](../pdf_translator/table_recovery.py) | Восстановление окрашенных таблиц и групповых статблоков по словам/геометрии, с защитой прежних ячеек от потери; явные span и уровни шапки статблоков. |
@@ -138,6 +139,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_frame_boundaries.py](../tests/test_frame_boundaries.py) | PDF-09: ложная рамка декоративной заливки, непрерывность соседней прозы, обе стороны и масштабы, настоящие рамки, слабые признаки и защищённые структуры. |
 | [tests/test_caption_continuations.py](../tests/test_caption_continuations.py) | PDF-10: продолжение обычной прозы с переходом к курсиву/жирному, полный синтетический PDF, настоящие подписи и отказы при слабых признаках. |
 | [tests/test_caption_narratives.py](../tests/test_caption_narratives.py) | PDF-11. Начало курсивного описания, независимая привязка продолжения к прозе и сохранение фильтрации подписей. |
+| [tests/test_special_text_recovery.py](../tests/test_special_text_recovery.py) | PDF-19. Выделенные цитаты, заголовки сеток, группы меток и однозначный `/ActualText`. Проверяет оба экспорта, соседний текст, настоящие подписи и области других блоков. |
 | [tests/test_false_paragraph_boundaries.py](../tests/test_false_paragraph_boundaries.py) | PDF-12. Продолжения строк в абзацах, списках и карточках, переносы между выбранными страницами и структурные границы. |
 | [tests/test_book_recovery.py](../tests/test_book_recovery.py) | Межглавные регрессии: швы колонок/страниц, отступы, поля, цитаты, буквицы, overprint-пробелы и потерянные ячейки. |
 | [tests/test_circular_labels.py](../tests/test_circular_labels.py) | Синтетические PDF для подтверждённых круговых подписей, вывода с предупреждением и случая без окружности. |
@@ -175,7 +177,7 @@ CLI: __main__ / console script → cli.main
 | [pyproject.toml](../pyproject.toml) | Версия, Python, зависимости, setuptools, console script и состав устанавливаемого пакета. |
 | [.gitignore](../.gitignore) | Исключения Git: окружения, сборка, кэши, пользовательские `example/` и `example.pdf`, результаты в `output/`, `tmp/` и логи. Общий шаблон содержит исключения для инструментов, которых проект не использует; это не список зависимостей. |
 | [README.md](../README.md) | Краткое описание, быстрый старт, примеры API и навигация по документации. |
-| [TODO.md](../TODO.md) | История нарезки, логирования, SOLID, async и PDF-01…PDF-08; активная очередь PDF-09…PDF-18 после ручного аудита, далёкая PDF-06 и отложенное живое сравнение размеров. |
+| [TODO.md](../TODO.md) | Очередь PDF-19…PDF-28, история прежних исправлений и переводческого конвейера, отложенные PDF-06 и живое сравнение размеров. |
 | [AGENTS.md](../AGENTS.md) | Обязательные границы полномочий, языки общения и правила независимого аудита. Это инструкции для агентов, не настройки конвертера. |
 | [docs/README.md](README.md) | Оглавление документации, маршруты чтения и границы покрытия. |
 | [docs/architecture.md](architecture.md) | Этот документ: карта файлов, зависимости и места изменения. |
