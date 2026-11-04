@@ -22,6 +22,7 @@ from .pdf_diagrams import extract_paths, extract_mapping_geometry, extract_arrow
 from .diagram_mappings import recover_cell_mappings
 from .preprocessing import integrate_dropcaps, remove_marginal_credits
 from .special_text import recognize_special_text
+from .symbol_legends import recover_symbol_legends
 from .table_recovery import recover_painted_tables
 from .table_structure import CellPaint, recover_table_structure
 from .models import BBox, ConversionError, ConversionWarning, Line, Word
@@ -320,6 +321,7 @@ def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
                         _text_color(r.get("non_stroking_color")))
               for r in clean.rects if r.get("fill")]
     data.tables = [recover_table_structure(table, words, paints) for table in data.tables]
+    data.tables.extend(recover_symbol_legends(data))
     frame_lines = group_lines([w for w in words if w.upright], data.body_size, split_gaps=True)
     # Filled boxes/curves frequently delimit sidebars; table cell fills do not.
     for shape in list(page.rects) + list(page.curves):

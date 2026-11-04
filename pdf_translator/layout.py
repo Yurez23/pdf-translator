@@ -316,11 +316,19 @@ def _table_blocks(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphe
         keep = [i for i in range(max(map(len, rows), default=0)) if any(i < len(row) and row[i] for row in rows)]
         rows = [[row[i] if i < len(row) else "" for i in keep] for row in rows]
         sources = (SourceRegion(page.number, table.bbox),)
+        table_lines = []
+        if table.role == "symbol_legend":
+            # Preserve the observed extent of each cell and the actual glyph
+            # provenance rather than inventing ruled cell boundaries.
+            cells = [box for row in table.cell_boxes for box in row if box]
+            sources += tuple(SourceRegion(page.number, box) for box in cells)
+            table_lines = group_lines([w for w in page.words if any(contains(box, w) for box in cells)],
+                                      page.body_size)
         if complex_table:
             warn(ConversionWarning("complex_table", "Структура таблицы не подтверждена: доступный текст сохранён отдельным блоком; проверьте строки, столбцы и объединения.", (page.number,)))
             result.append(Block("raw", " / ".join(" | ".join(row) for row in rows), sources, role="complex_table"))
         else:
-            result.append(Block("table", "", sources, rows=rows))
+            result.append(Block("table", "", sources, rows=rows, lines=table_lines, role=table.role))
     return result
 
 
@@ -408,6 +416,40 @@ def _framed_symbol_row(rotated: list[Word], frame: BBox, children: list[Block], 
                  body_size=size, role="symbol_row"), {id(w) for w in row}
 
 
+def _diagram_banner(row: Line, page: PageData) -> bool:
+    """A separate opaque label between a centered parent and lower cards."""
+    size = page.body_size
+    if row.size < size*1.18 or row.source_length > 80 or _terminal(row.text):
+        return False
+    for panel in page.diagram_obstacles:
+        if not (panel[0] <= row.bbox[0] <= row.bbox[2] <= panel[2]
+                and panel[1] <= row.bbox[1] <= row.bbox[3] <= panel[3]
+                and size*.7 <= panel[3]-panel[1] <= size*3
+                and abs((panel[0]+panel[2]-row.bbox[0]-row.bbox[2])/2) <= size):
+            continue
+        if {id(w) for w in page.words if contains(panel, w)} != {id(w) for w in row.words}:
+            continue
+        above = [b for b in page.diagram_boxes
+                 if 0 <= panel[1]-b[3] <= size*2
+                 and abs((panel[0]+panel[2]-b[0]-b[2])/2) <= size*2]
+        below = [b for b in page.diagram_boxes
+                 if 0 <= b[1]-panel[3] <= size*3
+                 and b[0] < panel[2]+size*4 and b[2] > panel[0]-size*4]
+        if len(above) == 1 and len(below) >= 3:
+            return True
+    return False
+
+
+def _logical_label(row: Line) -> str:
+    parts = []
+    for word in row.words:
+        raw = "".join(g.text for g in word.glyphs)
+        parts.append("".join(g.actual_text or g.text for g in word.glyphs)
+                     if word.glyphs and raw == word.text and not any(g.symbol for g in word.glyphs)
+                     else word.text)
+    return " ".join(parts)
+
+
 def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
                  special_blocks: Sequence[Block] = ()) -> list[Block]:
     table_blocks = _table_blocks(page, lexicon, warn, resolver)
@@ -441,13 +483,7 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
             row = rows[0]
             # The source can give an explicit logical character for a single
             # visible glyph. Keep normal extraction everywhere else unchanged.
-            parts = []
-            for word in row.words:
-                raw = "".join(g.text for g in word.glyphs)
-                parts.append("".join(g.actual_text or g.text for g in word.glyphs)
-                             if word.glyphs and raw == word.text and not any(g.symbol for g in word.glyphs)
-                             else word.text)
-            children.append(Block("paragraph", " ".join(parts), (SourceRegion(page.number, box),),
+            children.append(Block("paragraph", _logical_label(row), (SourceRegion(page.number, box),),
                                   lines=[row], body_size=page.body_size, role="graphic_label"))
         if len(children) != len(boxes):
             continue
@@ -471,7 +507,7 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
         if not inside:
             continue
         words = [w for w in words if not contains(frame, w)]
-        inner_tables = [b for b in table_blocks if encloses(frame,b.sources[0].bbox)]
+        inner_tables = [b for b in table_blocks if b.role != "symbol_legend" and encloses(frame,b.sources[0].bbox)]
         owned_tables.update(id(b) for b in inner_tables)
         is_card = frame in page.diagram_boxes
         inner_gutter = _gutter(inside,page) if frame[2]-frame[0] >= page.width*.6 else None
@@ -504,12 +540,14 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
     specials = [b for b in table_blocks if id(b) not in owned_tables] + framed_blocks + circular_labels + list(special_blocks) + recovered
     if page.diagram_boxes:
         region = union_bbox(page.diagram_boxes)
-        diagram_parts = [b for b in specials if encloses(region,b.sources[0].bbox)]
+        diagram_parts = [b for b in specials if b.role != "symbol_legend" and encloses(region,b.sources[0].bbox)]
         labels = [w for w in words if contains(region,w)]
         label_ids = {id(w) for w in labels}
         words = [w for w in words if id(w) not in label_ids]
         for row in group_lines(labels,page.body_size,split_gaps=True):
-            diagram_parts.append(Block('raw',row.text,(SourceRegion(page.number,row.bbox),),
+            banner = _diagram_banner(row, page)
+            diagram_parts.append(Block('heading' if banner else 'raw', _logical_label(row) if banner else row.text,
+                                       (SourceRegion(page.number,row.bbox),),
                                        lines=[row],body_size=page.body_size,role='graphic_label'))
         part_ids = {id(b) for b in diagram_parts}
         specials = [b for b in specials if id(b) not in part_ids]

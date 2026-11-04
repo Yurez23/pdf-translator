@@ -33,6 +33,8 @@ class TableData:
     repaired_gaps: bool = False
     cell_boxes: list[list[BBox | None]] = field(default_factory=list)
     structure: TableStructure | None = None
+    # Specialized, source-backed table recognition; empty for ordinary tables.
+    role: str = ""
 
 
 @dataclass
