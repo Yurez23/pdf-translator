@@ -7,6 +7,7 @@ from .export import render
 from .headings import assign_heading_levels
 from .layout import layout_page
 from .continuations import merge_continuations
+from .aside_order import order_asides
 from .paragraph_conventions import infer_paragraph_conventions
 from .diagram_mappings import attach_mappings
 from .preprocessing import remove_running_margins
@@ -79,6 +80,7 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
         blocks = merge_continuations(blocks, lexicon, warn, hyphen_resolver, empty_pages=empty_pages,
                                      selected_pages=selected_pages, insert_pages=insert_pages,
                                      paragraph_conventions=paragraph_conventions)
+        blocks = order_asides(blocks, extracted)
     with span("conversion.render"):
         markdown, text = render(blocks)
     if not text.strip():

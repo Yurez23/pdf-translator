@@ -21,7 +21,7 @@ CLI: __main__ / console script → cli.main
                                   │
                      иерархия по всему документу
                                   │
-                  выбор страниц → склейка продолжений
+            выбор страниц → склейка продолжений → порядок вставок
                                   │
                           экспорт MD и TXT
                                   │
@@ -49,7 +49,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/__init__.py](../pdf_translator/__init__.py) | Публичная граница пакета: `convert_pdf` и семь типов результатов, ошибок и обработчика переносов. Точный список — в API. |
 | [pdf_translator/__main__.py](../pdf_translator/__main__.py) | Запуск `python -m pdf_translator`; передаёт управление `cli.main()` и возвращает его код завершения. |
 | [pdf_translator/cli.py](../pdf_translator/cli.py) | `main`: аргументы, UTF-8 терминала, выбор режима переносов, предупреждения и ошибки. `_prompt_hyphen` / `_read_choice`: ответы пользователя. `_write_outputs`: защита от перезаписи, подготовка и запись MD/TXT. |
-| [pdf_translator/converter.py](../pdf_translator/converter.py) | `convert_pdf`: координация чтения, очистки, вёрстки, заголовков, продолжений и возврат результата в памяти. |
+| [pdf_translator/converter.py](../pdf_translator/converter.py) | `convert_pdf`: координация чтения, очистки, вёрстки, заголовков, продолжений, порядка вставок и возврат результата в памяти. |
 | [pdf_translator/models.py](../pdf_translator/models.py) | Общие структуры: `Glyph`, `Word`, `Line`, `Block`, `SourceRegion`, результат, предупреждения и вопрос о переносе; типы `BBox`, `BlockKind`, `HyphenResolver`. `union_bbox` объединяет геометрию. |
 | [pdf_translator/layout.py](../pdf_translator/layout.py) | Собирает внутристранничные блоки, колонки, списки, таблицы и вставки. Оставляет подтверждённые сноски возле их блоков и выделяет ряды знаков внутри рамок. |
 | [pdf_translator/captions.py](../pdf_translator/captions.py) | `remove_figure_captions`: обычные подписи у рисунков; `remove_background_captions`: отдельная строгая документная проверка групп на полностраничном фоне до layout/headings. Защищает основной текст, таблицы, их названия, рамочные вставки и формы; поля формы не обучают стиль удаляемой подписи. |
@@ -81,6 +81,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/table_structure.py](../pdf_translator/table_structure.py) | Нейтральная проверка полного покрытия сетки, владельцев слов/слотов, окрашенных шапок и групп; ремонт конфликтующей линейной геометрии, нормализация в прямоугольные секции. Без PDF SDK, I/O и угадывания по прозе. |
 | [pdf_translator/preprocessing.py](../pdf_translator/preprocessing.py) | Вертикальные имена, буквицы и повторяющиеся колонтитулы; прежний порядок эвристик. |
 | [pdf_translator/continuations.py](../pdf_translator/continuations.py) | Склейка продолжений между страницами/колонками; отдельная ветвь через формы с явными выбранными страницами и страницами вставок. Проверки шрифта, отступов, скобок и однозначного маршрута; форма не считается пустой страницей. |
+| [pdf_translator/aside_order.py](../pdf_translator/aside_order.py) | Консервативная перестановка готовых рамок и цитат относительно подтверждённого раздела после склейки; без изменения содержимого и исходных областей. |
 | [pdf_translator/file_outputs.py](../pdf_translator/file_outputs.py) | Общая подготовка и публикация UTF-8-файлов; path/overwrite policy задаёт вызывающий сценарий. |
 | [pdf_translator/jsonl.py](../pdf_translator/jsonl.py) | Файловый `JsonlSink`: ограниченные части, OS-lock, ротация, retention и защита от ссылок. |
 | [pdf_translator/heading_context.py](../pdf_translator/heading_context.py) | Нейтральное документное обучение баннеров до фильтра подписей, геометрические свидетельства вспомогательных ролей; без PDF SDK, рендеринга, удаления текста или I/O. |
@@ -153,6 +154,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_background_captions.py](../tests/test_background_captions.py) | PDF-04: извлечение и оба экспорта фоновых подписей, целые группы/неоднозначные хвосты, документный контекст, выбор страниц, защищённые структуры и необязательный Heroic Paths. |
 | [tests/test_headings.py](../tests/test_headings.py) | `DocumentHeadingTests`, `HeadingStyleTests`: уровни по документу, допуски размеров, выбор страниц, вспомогательные названия, предел H6, отсутствие лишних вопросов. |
 | [tests/test_asides.py](../tests/test_asides.py) | `AsideLayoutTests`, `AsideExportTests`: одна рамка — один контейнер, заголовки/абзацы/списки внутри, экспорт без дублирования. |
+| [tests/test_aside_order.py](../tests/test_aside_order.py) | Порядок рамок и цитат по разделам между колонками и страницами, документные баннеры, границы выбора и отрицательные случаи. |
 | [tests/test_form_inserts.py](../tests/test_form_inserts.py) | PDF-03: синтетические формы и отрицательные сетки/карточки/проза, защита полей, атомарные таблицы, источники, заголовки, продолжения, выбор страниц и локальная регрессия чарника. |
 | [tests/test_translation.py](../tests/test_translation.py) | Планы, разметка, валидация, файлы, CLI и бюджет. Независимая scripted-заглушка без наследования Gemini; сеть запрещена. |
 | [tests/test_chunking.py](../tests/test_chunking.py) | Кап/CLI 16000, разделители, подразделы и вложенность, абзацы/предложения/сокращения, заголовки, маркеры, большие/малые контейнеры, токенное дробление, детерминизм и несовместимый старый план. Только офлайн. |
