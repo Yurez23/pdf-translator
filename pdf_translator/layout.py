@@ -12,7 +12,7 @@ from .diagrams import join_card_title
 from .continuations import merge_continuations
 from .headings import graphic_label
 from .paragraphs import (lead_in as _lead_in, bold, hanging_entry, bold_continuation,
-                         italic, returns_left, style_boundary, hanging_run,
+                         italic, italic_field_start, returns_left, style_boundary, hanging_run,
                          centered_quotation_lines, quotation_opener)
 from .paragraph_conventions import line_font
 from .page_data import PageData
@@ -62,6 +62,7 @@ def _gutter(words: list[Word], page: PageData, *, upper: float = 1.15) -> tuple[
 def _blocks_for_lines(
     lines: list[Line], page: PageData, bounds: BBox, lexicon: set[str], warn: Warn,
     resolver: HyphenResolver | None = None,
+    *, card: bool = False,
 ) -> list[Block]:
     if not lines:
         return []
@@ -124,6 +125,13 @@ def _blocks_for_lines(
         is_heading = line.size >= body * 1.18 and line.source_length <= 180 and not italic(line)
         # Bold, short standalone labels are headings; bold lead-ins in prose are not.
         all_bold = all(any(s in w.font.lower() for s in ("bold", "demi", "black")) for w in line.words)
+        # A semantic symbol may use its own non-bold font. In a confirmed card
+        # it belongs with the bold title, not with the first rules paragraph.
+        if (card and index == 0 and len(lines) > 1 and len(line.words) > 1
+                and -body * .2 <= line.bbox[1] - bounds[1] <= body):
+            symbol, *letters = line.words
+            all_bold = (all_bold or bool(symbol.glyphs and all(g.symbol for g in symbol.glyphs)
+                                         and all(bold(word) for word in letters)))
         if all_bold and line.source_length < 80 and not _terminal(text) and not is_list(text):
             is_heading = True
         if id(line) in field_lines:
@@ -141,7 +149,8 @@ def _blocks_for_lines(
             if (prev_heading and prev_heading.kind == "heading" and prev_heading.level == level
                     and prev_heading.lines and abs(prev_heading.lines[-1].size - line.size) < 0.5
                     and 0 <= line.bbox[1] - prev_heading.lines[-1].bbox[3] <= body * 0.45
-                    and abs(line.text_left - prev_heading.lines[-1].text_left) < body):
+                    and abs(line.text_left - prev_heading.lines[-1].text_left) < body
+                    and not (card and any(g.symbol for word in line.words for g in word.glyphs))):
                 prev_heading.text += " " + text.replace("\u00ad", "")
                 prev_heading.lines.append(line)
                 prev_heading.sources = (SourceRegion(page.number, union_bbox([prev_heading.sources[0].bbox, line.bbox])),)
@@ -198,9 +207,36 @@ def _blocks_for_lines(
             if kind == "list_item" and is_list(pending[0].text) and len(pending[0].words) > 1:
                 content_left = max(content_left, pending[0].words[1].bbox[0])
             bold_entry = line.bold_start and _terminal(prev.text) and not prev.bold_start
-            italic_field_end = (italic(pending[0]) and italic(prev) and not italic(line)
+            italic_field_end = ((italic(pending[0]) or card and italic_field_start(pending[0]))
+                                and (italic(prev) or card and prev is pending[0] and italic_field_start(prev))
+                                and not italic(line)
                                 and bool(re.match(r"^[\w -]{1,40}:", pending[0].text))
                                 and gap >= body * .2)
+            # A short italic label directly under a heading, followed by a
+            # separately spaced roman paragraph, is a field of its own.
+            heading = result[-1] if result else None
+            italic_subtitle = (len(pending) == 1 and heading is not None and heading.kind == "heading"
+                               and heading.lines and italic(prev) and not italic(line)
+                               and not _terminal(prev.text) and 2 <= len(prev.words) <= 12
+                               and 0 <= prev.bbox[1] - heading.lines[-1].bbox[3] <= prev.size * .5
+                               and abs(prev.text_left - heading.lines[-1].text_left) <= prev.size * .5
+                               and abs(line.text_left - prev.text_left) <= prev.size * .5
+                               and abs(line.size - prev.size) <= prev.size * .1
+                               and prev.bbox[2] < right - prev.size * 3
+                               and gap >= prev.size * .5)
+            # A full, colon-ended source line immediately before a numbered
+            # list can be an introduction after a completed, short paragraph.
+            # Its first word must have physically fitted on that prior line.
+            following = lines[index + 1] if index + 1 < len(lines) else None
+            list_intro = (len(pending) >= 2 and kind == "paragraph" and _terminal(prev.text)
+                          and text.endswith(":") and not is_list(text) and following is not None
+                          and bool(re.match(r"^\(?\d+[.)]\s+", following.text))
+                          and abs(line.text_left - anchor) <= body * .45
+                          and abs(following.text_left - anchor) <= body * .45
+                          and 0 <= gap <= body * .65
+                          and 0 <= following.bbox[1] - line.bbox[3] <= body
+                          and prev.bbox[2] + (line.words[0].bbox[2] - line.words[0].bbox[0])
+                              + body * .25 < right)
             disconnected = (abs(line.bbox[3] - prev.bbox[3]) < body * 0.3
                             and (line.bbox[0] - prev.bbox[2] > body * 3 or prev.bbox[0] - line.bbox[2] > body * 3))
             boundary = (gap > body * 0.65 or is_list(text) or lead_in or footnote and kind != "footnote"
@@ -213,7 +249,8 @@ def _blocks_for_lines(
                         and (short_end or _terminal(prev.text))
                         or _terminal(prev.text) and prev.text.rstrip().endswith(('”','"'))
                         and text.startswith(('“','"')) and gap >= body*.5
-                        or bold_entry or italic_field_end or disconnected or style_boundary(prev, line, body)
+                        or bold_entry or italic_field_end or italic_subtitle or list_intro
+                        or disconnected or style_boundary(prev, line, body)
                         or (id(prev) in quotation_lines) != (id(line) in quotation_lines))
             if boundary:
                 flush()
@@ -287,17 +324,17 @@ def _table_blocks(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphe
     return result
 
 
-def _ordered_region(lines: list[Line], specials: list[Block], page: PageData, bounds: BBox, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None) -> list[Block]:
+def _ordered_region(lines: list[Line], specials: list[Block], page: PageData, bounds: BBox, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None, *, card: bool = False) -> list[Block]:
     result: list[Block] = []
     remaining = list(lines)
     for block in sorted(specials, key=lambda b: b.sources[0].bbox[1]):
         top = block.sources[0].bbox[1]
         before = [line for line in remaining if line.bbox[1] < top]
-        result.extend(_blocks_for_lines(before, page, bounds, lexicon, warn, resolver))
+        result.extend(_blocks_for_lines(before, page, bounds, lexicon, warn, resolver, card=card))
         before_ids = {id(line) for line in before}
         remaining = [line for line in remaining if id(line) not in before_ids]
         result.append(block)
-    result.extend(_blocks_for_lines(remaining, page, bounds, lexicon, warn, resolver))
+    result.extend(_blocks_for_lines(remaining, page, bounds, lexicon, warn, resolver, card=card))
     return result
 
 
@@ -436,6 +473,7 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
         words = [w for w in words if not contains(frame, w)]
         inner_tables = [b for b in table_blocks if encloses(frame,b.sources[0].bbox)]
         owned_tables.update(id(b) for b in inner_tables)
+        is_card = frame in page.diagram_boxes
         inner_gutter = _gutter(inside,page) if frame[2]-frame[0] >= page.width*.6 else None
         if inner_gutter:
             split,_,_ = inner_gutter
@@ -445,14 +483,13 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
                 tables = [b for b in inner_tables if ((b.sources[0].bbox[0]+b.sources[0].bbox[2])/2 < split) == left]
                 children.extend(_ordered_region(group_lines(column,page.body_size),tables,page,frame,lexicon,warn,resolver))
         else:
-            children = _ordered_region(group_lines(inside,page.body_size),inner_tables,page,frame,lexicon,warn,resolver)
+            children = _ordered_region(group_lines(inside,page.body_size),inner_tables,page,frame,lexicon,warn,resolver,card=is_card)
         symbol_row, owned_rotated = _framed_symbol_row(rotated, frame, children, page)
         if symbol_row:
             position = next(i for i, child in enumerate(children)
                             if child.sources[0].bbox[1] >= symbol_row.sources[0].bbox[3])
             children.insert(position, symbol_row)
             rotated = [w for w in rotated if id(w) not in owned_rotated]
-        is_card = frame in page.diagram_boxes
         if is_card:
             join_card_title(children, frame)
         children = merge_continuations(children,lexicon,warn,resolver)

@@ -68,7 +68,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/symbol_geometry.py](../pdf_translator/symbol_geometry.py) | Нейтральное сравнение полных векторных контуров, частей и пропорций; отдельный неизвестный результат при достаточно характерном конфликте. |
 | [pdf_translator/symbol_signatures.py](../pdf_translator/symbol_signatures.py) | Изолированные нормализованные сигнатуры с доказательствами в документации; без условий по странице, названию или прозе. |
 | [pdf_translator/geometry.py](../pdf_translator/geometry.py) | `contains`, `body_size`, `group_lines`: общие координаты и строки. |
-| [pdf_translator/paragraphs.py](../pdf_translator/paragraphs.py) | Типографические правила вводных/висячих пунктов, продолжения жирной фразы, отступа новой первой строки и границы авторского курсива; без PDF SDK и I/O. |
+| [pdf_translator/paragraphs.py](../pdf_translator/paragraphs.py) | Типографические правила вводных и висячих пунктов, продолжения жирной фразы, отступа новой первой строки и курсивных полей. |
 | [pdf_translator/paragraph_conventions.py](../pdf_translator/paragraph_conventions.py) | PDF-07: нейтральные образцы внутренних абзацных границ, вывод документного отступа и консервативное доказательство продолжения после законченного предложения; без извлечения, callbacks, экспорта и I/O. |
 | [pdf_translator/circular_labels.py](../pdf_translator/circular_labels.py) | Распознаёт векторные окружности, группирует текст на нижней дуге и сверяет склейку с таблицей. |
 | [pdf_translator/diagrams.py](../pdf_translator/diagrams.py) | Узкий геометрический детектор раздельных карточек: белые панели, повторяемые ширины, настоящие промежутки и корневые узлы; без интерпретации стрелок. |
@@ -141,6 +141,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_caption_narratives.py](../tests/test_caption_narratives.py) | PDF-11. Начало курсивного описания, независимая привязка продолжения к прозе и сохранение фильтрации подписей. |
 | [tests/test_special_text_recovery.py](../tests/test_special_text_recovery.py) | PDF-19. Выделенные цитаты, заголовки сеток, группы меток и однозначный `/ActualText`. Проверяет оба экспорта, соседний текст, настоящие подписи и области других блоков. |
 | [tests/test_attached_notes.py](../tests/test_attached_notes.py) | PDF-20. Положение сносок и ряда игровых знаков, исходные области, сохранение предупреждения для других повёрнутых фрагментов. |
+| [tests/test_card_rule_fields.py](../tests/test_card_rule_fields.py) | PDF-21. Границы заголовков и полей карточек, короткие курсивные метки, отдельное вступление к нумерованному списку и контрпримеры переносов. |
 | [tests/test_false_paragraph_boundaries.py](../tests/test_false_paragraph_boundaries.py) | PDF-12. Продолжения строк в абзацах, списках и карточках, переносы между выбранными страницами и структурные границы. |
 | [tests/test_book_recovery.py](../tests/test_book_recovery.py) | Межглавные регрессии: швы колонок/страниц, отступы, поля, цитаты, буквицы, overprint-пробелы и потерянные ячейки. |
 | [tests/test_circular_labels.py](../tests/test_circular_labels.py) | Синтетические PDF для подтверждённых круговых подписей, вывода с предупреждением и случая без окружности. |

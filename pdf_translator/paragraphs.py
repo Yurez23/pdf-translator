@@ -19,6 +19,18 @@ def italic(line: Line) -> bool:
     return bool(total) and marked >= total * .8
 
 
+def italic_field_start(line: Line) -> bool:
+    """Accept a short bold label followed by an otherwise italic value."""
+    if italic(line):
+        return True
+    for index, word in enumerate(line.words):
+        if word.text.endswith(":"):
+            label, value = line.words[:index + 1], line.words[index + 1:]
+            return bool(value and all(bold(w) for w in label)
+                        and all(italic(Line([w], w.bbox, w.size)) for w in value))
+    return False
+
+
 def _display_style(line: Line) -> tuple[str, tuple[float, ...] | None]:
     styles = Counter()
     for word in line.words:
