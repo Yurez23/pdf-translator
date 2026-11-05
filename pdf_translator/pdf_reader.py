@@ -12,7 +12,8 @@ from pdfplumber.utils.exceptions import PdfminerException
 from .captions import remove_background_captions, remove_figure_captions
 from .circular_labels import circle_outline
 from .diagrams import card_panels
-from .forms import attach_form_labels, detect_form_regions
+from .forms import attach_form_labels, detect_form_regions, encloses
+from .form_details import form_table_rows, prepare_form_details
 from .geometry import body_size, contains, group_lines
 from .heading_context import learn_heading_context
 from .page_data import PageData, TableData
@@ -223,6 +224,7 @@ def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
     clean = page.dedupe_chars(tolerance=0.5, extra_attrs=("fontname", "size"))
     clean = recover_symbols(clean, warn)
     source_chars = clean.chars
+    source_positions = {id(char): index for index, char in enumerate(source_chars)}
     ignored_spaces = _overprinted_spaces(source_chars)
     if ignored_spaces:
         clean = clean.filter(lambda obj: id(obj) not in ignored_spaces)
@@ -240,7 +242,7 @@ def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
             colors = Counter(_text_color(c.get("non_stroking_color")) for c in chars)
             color = colors.most_common(1)[0][0] if colors else None
             words.append(Word(text, (item["x0"], item["top"], item["x1"], item["bottom"]), size, font, item.get("upright", True), angle, color,
-                              tuple(glyph_provenance(c) for c in chars)))
+                              tuple(glyph_provenance(c, source_positions.get(id(c))) for c in chars)))
     data = PageData(page.page_number, page.width, page.height, words, body_size(words))
     data.images = [(im["x0"], im["top"], im["x1"], im["bottom"]) for im in page.images if not im.get("imagemask")]
     shapes = list(page.rects)+list(page.curves)
@@ -264,6 +266,7 @@ def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
                 continue
         outlines.append((shape["x0"],shape["top"],shape["x1"],shape["bottom"]))
     data.form_regions = detect_form_regions(data, outlines, card_panels(data, shapes))
+    prepare_form_details(data, shapes, page.lines)
     attach_form_labels(data)
     with span("conversion.credits_filter"):
         remove_marginal_credits(data)
@@ -320,6 +323,8 @@ def _read_page(page, warn, *, defer_captions: bool = False) -> PageData:
     paints = [CellPaint((r["x0"], r["top"], r["x1"], r["bottom"]),
                         _text_color(r.get("non_stroking_color")))
               for r in clean.rects if r.get("fill")]
+    data.tables = [form_table_rows(table, words) if any(encloses(form.bbox, table.bbox)
+                   for form in data.form_regions) else table for table in data.tables]
     data.tables = [recover_table_structure(table, words, paints) for table in data.tables]
     data.tables.extend(recover_symbol_legends(data))
     frame_lines = group_lines([w for w in words if w.upright], data.body_size, split_gaps=True)

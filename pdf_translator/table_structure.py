@@ -213,6 +213,47 @@ def recover_table_structure(table, words, paints):
     return _painted_rectangle(table, words, paints) or table
 
 
+def itemized_columns(table, words):
+    """Recognize repeated, deliberately separated single-token cell items.
+
+    Three or more complete body cells must each contain the same number of
+    short title-cased lines. In at least three cells two neighbouring items
+    would fit on one line, excluding ordinary width-driven prose wrapping.
+    """
+    if (table.structure or table.repaired_gaps or len(table.rows) < 4
+            or len(table.cell_boxes) != len(table.rows)):
+        return set()
+    result = set()
+    for column in range(len(table.rows[0])):
+        item_count = None
+        spare = 0
+        valid = True
+        for row, boxes in zip(table.rows[1:],table.cell_boxes[1:]):
+            if column >= len(row) or column >= len(boxes) or boxes[column] is None:
+                valid = False
+                break
+            box = boxes[column]
+            inside = [w for w in words if contains(box,w)]
+            lines = group_lines(inside,median((w.size for w in inside)) if inside else 10)
+            if (len(lines) < 3 or any(len(line.words) != 1 or not line.text.isalpha()
+                                      or not line.text[0].isupper() for line in lines)
+                    or [line.text for line in lines] != (row[column] or "").splitlines()):
+                valid = False
+                break
+            if item_count is None:
+                item_count = len(lines)
+            if len(lines) != item_count or max(line.bbox[0] for line in lines)-min(line.bbox[0] for line in lines) > 1.25:
+                valid = False
+                break
+            available = box[2]-max(line.bbox[0] for line in lines)
+            if any((a.bbox[2]-a.bbox[0])+(b.bbox[2]-b.bbox[0])+a.size*.25 <= available
+                   for a,b in zip(lines,lines[1:])):
+                spare += 1
+        if valid and spare >= 3:
+            result.add(column)
+    return result
+
+
 def normalized_sections(structure):
     """Establish headers and groups without making the exporter infer semantics."""
     cells = structure.cells

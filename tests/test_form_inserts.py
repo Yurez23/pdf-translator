@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 import unicodedata
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -507,6 +508,7 @@ class OptionalCharacterFormTests(unittest.TestCase):
         cls.selected = convert_pdf(LOCAL_CHARACTER_PDF, pages="4-6",
             hyphen_resolver=lambda issue: cls.choices.append(issue) or False)
         cls.form_only = convert_pdf(LOCAL_CHARACTER_PDF, pages="5", hyphen_resolver=lambda _: False)
+        cls.disjoint = convert_pdf(LOCAL_CHARACTER_PDF, pages="3,5,8", hyphen_resolver=lambda _: False)
 
     def test_real_interrupted_paragraph_has_only_main_text_source_pages(self):
         joined = [b for b in self.selected.blocks if "during character creation, but" in b.text]
@@ -529,21 +531,54 @@ class OptionalCharacterFormTests(unittest.TestCase):
             raw = "".join(char["text"] for char in pdf.pages[4].chars if char["top"] < 730)
         def characters(text):
             ligatures = str.maketrans({"ﬀ":"ff", "ﬁ":"fi", "ﬂ":"fl", "ﬃ":"ffi", "ﬄ":"ffl", "ﬅ":"st", "ﬆ":"st"})
-            return Counter(c for c in unicodedata.normalize("NFC", text.translate(ligatures)) if not c.isspace())
+            return Counter(c for c in unicodedata.normalize("NFC", text.translate(ligatures)).casefold() if not c.isspace())
         form = next(b for b in self.form_only.blocks if b.role == "form_insert")
-        self.assertEqual(characters(self.form_only.text), characters(raw))
+        # Ignore only the explicit generated annotations; the nine commas join
+        # the three defense triples and three resource pairs. Every printed
+        # character, including the original punctuation, is still checked.
+        normalized = re.sub(r"\[(?:ranks: \d+|blank|special activation|reaction)\]", "", self.form_only.text)
+        output_chars, raw_chars = characters(normalized), characters(raw)
+        self.assertEqual(output_chars - raw_chars, Counter({",": 9}))
+        self.assertEqual(raw_chars - output_chars, Counter())
         self.assertEqual(len(self.form_only.blocks), 1)
         self.assertIn("Shallan", form.text)
-        self.assertIn("physical cognitive", form.text)
-        self.assertIn("spiritual", form.text)
-        for field in ("defense 11", "defense 15", "defense 16", "defleCt 1"):
+        for field in ("PHYSICAL DEFENSE 11, STRENGTH 0, SPEED 1",
+                      "COGNITIVE DEFENSE 15, INTELLECT 2, WILLPOWER 3",
+                      "SPIRITUAL DEFENSE 16, AWARENESS 3, PRESENCE 3", "DEFLECT 1"):
             self.assertTrue(any(b.text == field for b in walk(form.children)), field)
+        self.assertIn("HEALTH MAXIMUM 10, CURRENT [blank]", self.form_only.text)
+        self.assertIn("INVESTITURE MAXIMUM 0, CURRENT 0", self.form_only.text)
+        self.assertIn("5 INSIGHT (AWA) [ranks: 2]", self.form_only.text)
+        self.assertEqual(self.form_only.text.count("[special activation]"), 1)
+        self.assertEqual(self.form_only.text.count("[reaction]"), 1)
         self.assertEqual(sum(b.kind == "aside" for b in form.children), 3)
         self.assertIn("The fronT of your compleTed characTer sheeT", form.text)
         self.assertTrue(any(b.kind == "table" for b in walk(form.children)))
         self.assertTrue(all(s.page == 5 for b in walk([form]) for s in b.sources))
         self.assertEqual(render(self.form_only.blocks), (self.form_only.markdown, self.form_only.text))
         self.assertFalse(any(w.code in ("empty_page", "insert_continuation") for w in self.form_only.warnings))
+
+    def test_selected_source_pages_keep_form_details_and_table_items(self):
+        self.assertTrue(all(source.page in (3,5,8) for block in walk(self.disjoint.blocks)
+                            for source in block.sources))
+        forms = [b for b in self.disjoint.blocks if b.role == "form_insert"]
+        self.assertEqual([b.sources[0].page for b in forms], [5,8])
+        self.assertIn("Investigator, Spy, Thief", self.disjoint.markdown)
+        self.assertIn("Diplomat, Faithful, Mentor", self.disjoint.text)
+        self.assertEqual(self.disjoint.text.count("PATHS Agent (Spy)"),2)
+        self.assertEqual(self.disjoint.text.count("PHYSICAL DEFENSE 11, STRENGTH 0, SPEED 1"),2)
+        self.assertIn("HEALTH MAXIMUM 10, CURRENT [blank]",self.disjoint.text)
+        self.assertIn("FOCUS MAXIMUM 5, CURRENT [blank]",self.disjoint.text)
+        self.assertIn("INVESTITURE MAXIMUM 0, CURRENT 0",self.disjoint.text)
+        for text in ("2 STEALTH (SPD) [ranks: 1]", "3 DEDUCTION (INT) [ranks: 1]",
+                     "4 DECEPTION (PRE) [ranks: 1]", "5 INSIGHT (AWA) [ranks: 2]"):
+            self.assertIn(text,self.disjoint.text)
+        self.assertEqual(self.disjoint.text.count("[ranks: 0]"),14)
+        self.assertIn("[special activation] Opportunist: Once per round, you can reroll your plot die.",self.disjoint.text)
+        self.assertIn("[reaction] Plausible Excuse: When discovered skulking, spend 2 focus to feign innocence.",self.disjoint.text)
+        self.assertIn("but she’s not as worldly as she appears",self.disjoint.text)
+        self.assertEqual(self.disjoint.text.count("_____________ ( ___ )"),3)
+        self.assertEqual(render(self.disjoint.blocks),(self.disjoint.markdown,self.disjoint.text))
 
 
 if __name__ == "__main__":

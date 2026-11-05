@@ -329,13 +329,13 @@ result = convert_pdf("book.pdf", hyphen_resolver=keep_and_record)
 | --- | --- |
 | `BBox` в `models` | Псевдоним кортежа четырёх `float`. |
 | `Word` в `models` | Обязательные `text`, `bbox`, `size`; `font=""`, `upright=True`, `angle=0.0`, `color=None`, `glyphs=()`. Прежние позиционные аргументы сохранены. Цвет — кортеж каналов, а не обязательный RGB; `source_length` считает исходную длину глифов вместо длины раскрытых меток. |
-| `Glyph` в `models` | Исходные `text`, `font`, `bbox`; `cid=None`, `font_sha256=""`, `symbol=""`, `origin="text"`, `glyph_name=""`, `actual_text=""`. Имя глифа берётся из Encoding отдельно от ToUnicode. `actual_text` хранит однозначный одиночный символ из `/ActualText` отдельно от исходного глифа. Для вектора `origin="vector"`, CID отсутствует, bbox соответствует контуру, базовая линия слова берётся у соседнего текста. Хеш вычисляется только для шрифта-кандидата. Это provenance модели. |
+| `Glyph` в `models` | Исходные `text`, `font`, `bbox`; `cid=None`, `font_sha256=""`, `symbol=""`, `origin="text"`, `glyph_name=""`, `actual_text=""`, `text_run=None`, `source_order=None`. Имя глифа берётся из Encoding отдельно от ToUnicode. `actual_text` хранит однозначный одиночный символ из `/ActualText`, `text_run` и `source_order` сохраняют данные исходного порядка глифов для проверок в форме. Для вектора `origin="vector"`, CID отсутствует, bbox соответствует контуру. Хеш шрифта вычисляется только для шрифта-кандидата. |
 | `Line` в `models` | Обязательные `words`, `bbox`, `size`; `text` соединяет слова пробелами, `bold_start` проверяет шрифт первого слова. `source_length` исключает раздувание длины раскрытыми метками; `text_without_symbols` нужен для поля с двоеточием перед знаком; `text_left` сохраняет выравнивание названия без ведущего знака. |
 | `TableData` в `page_data` | `bbox`, `rows` (`list[list[str \| None]]`), `repaired_gaps=False`, необязательные `cell_boxes=[]`, `structure=None` и `role=""`. Старые позиционные аргументы совместимы. Исходные строки и геометрия не заменяются нормализованными секциями. |
 | `TableCell` / `TableStructure` в `page_data` | Frozen dataclass: физическая ячейка (`row`, `column`, `rowspan`, `colspan`, `text`, `bbox`); структура (`cells`, `row_edges`, `column_edges`, `header_rows=1`, `group_rows=()`). Пустой текст — установленная пустая ячейка, span задаёт владельца продолжений. Отсутствующая/конфликтующая геометрия не получает подтверждённую структуру. |
 | `CellPaint` / `TableSection` в `table_structure` | Нейтральная заливка (`bbox`, `color`) и установленная секция (`bbox`, `rows`, `group`, `group_bbox`). `normalized_sections` строит секции до экспорта. |
 | `FormRegion` в `page_data` | Нейтральное описание подтверждённой формы: `bbox`, кортеж областей полей `fields`, `attachments=()` для присоединённых подписей; внутренний тип PDF-03, без PDF SDK. |
-| `PageData` в `page_data` | Обязательные `number`, `width`, `height`, `words`, `body_size`; списки `tables`, `frames`, `separators`, `dropcaps`, `images`, `diagram_boxes`, `form_regions` и множество подтверждённых `caption_styles`. Рамки, буквицы, изображения и карточки используют BBox, разделители используют вертикальные координаты. `quotation_regions` и `graphic_label_groups` содержат подтверждённые до фильтра области цитат и группы областей надписей. Новые коллекции добавлены в конец с пустыми значениями по умолчанию. |
+| `PageData` в `page_data` | Обязательные `number`, `width`, `height`, `words`, `body_size`; списки `tables`, `frames`, `separators`, `dropcaps`, `images`, `diagram_boxes`, `form_regions` и множество подтверждённых `caption_styles`. Рамки, буквицы, изображения и карточки используют BBox, разделители используют вертикальные координаты. `quotation_regions` и `graphic_label_groups` содержат подтверждённые до фильтра области цитат и группы областей надписей. `form_circles`, `form_dividers` и `form_ink` хранят наблюдаемые кружки, разделители и другие отметки формы. Новые коллекции добавлены в конец с пустыми значениями по умолчанию. |
 | `HeadingStyle` в `headings` | Frozen dataclass: обязательные `size`, `font`, `color`; нужен для сравнения оформления и назначения уровней. |
 
 PDF-05 сохраняет сигнатуру `convert_pdf`, CLI и восемь экспортов. `outline_level`
@@ -380,6 +380,11 @@ PDF-07 также сохраняет публичную сигнатуру и в
 основной блок. Источники абзаца не включают страницу вставки. Нельзя восстанавливать
 порядок повторной сортировкой по `page` или одновременно экспортировать `text`
 и `children`. Без доказанной склейки форма остаётся на физическом месте.
+
+Подтверждённый ряд навыка в форме включает напечатанные поля, модификатор и
+отдельную метку `[ranks: N]`. Исходные кружки остаются в `Block.lines` как
+векторные глифы, по которым проверяется значение. В парных ресурсных полях
+`[blank]` передаёт установленную пустоту, а исходный `0` сохраняется как число.
 
 PDF-02 не меняет сигнатуру `convert_pdf`, восемь экспортов или поля `Block`.
 Одна исходная таблица может дать несколько `table` с разными составными шапками

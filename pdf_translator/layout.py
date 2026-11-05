@@ -17,6 +17,7 @@ from .paragraphs import (lead_in as _lead_in, bold, hanging_entry, bold_continua
 from .paragraph_conventions import line_font
 from .page_data import PageData
 from .forms import encloses, overlaps
+from .form_details import form_detail_groups, include_form_icon_sources
 from .models import BBox, Block, ConversionWarning, HyphenResolver, Line, SourceRegion, Word, union_bbox
 from .symbols import LABELS
 from .text import is_list, join_lines, normalize, terminal as _terminal
@@ -311,7 +312,11 @@ def _table_blocks(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphe
             text = " / ".join(line.text for line in group_lines(available, page.body_size))
             result.append(Block("raw", text, (SourceRegion(page.number, table.bbox),), role="complex_table"))
             continue
-        rows = [[join_lines((cell or "").splitlines(), lexicon, page.number, warn, resolver) for cell in row] for row in table.rows]
+        from .table_structure import itemized_columns
+        itemized = itemized_columns(table,page.words)
+        rows = [[(", ".join((cell or "").splitlines()) if i in itemized and n else
+                  join_lines((cell or "").splitlines(), lexicon, page.number, warn, resolver))
+                 for i,cell in enumerate(row)] for n,row in enumerate(table.rows)]
         # Ruled book tables sometimes have an extra, entirely empty decorative column.
         keep = [i for i in range(max(map(len, rows), default=0)) if any(i < len(row) and row[i] for row in rows)]
         rows = [[row[i] if i < len(row) else "" for i in keep] for row in rows]
@@ -736,8 +741,15 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenR
         table_blocks = _table_blocks(inner,lexicon,warn,resolver)
         remaining = [w for w in inside if not any(contains(t.bbox,w) for t in tables)]
         groups = [(b.sources[0].bbox,[b]) for b in table_blocks]
+        detail_fields = set()
+        for box, children, used, fields in form_detail_groups(inner,form,remaining):
+            groups.append((box,children))
+            remaining = [w for w in remaining if id(w) not in used]
+            detail_fields.update(fields)
         used_frames = set()
         for field in form.fields:
+            if field in detail_fields:
+                continue
             if any(overlaps(field,t.bbox) for t in tables):
                 continue
             words = [w for w in remaining if contains(field,w)]
@@ -770,6 +782,7 @@ def layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenR
             groups.append((child.sources[0].bbox,[child]))
         groups.sort(key=lambda item:(round(item[0][1]/page.body_size),item[0][0]))
         children = [child for _,group in groups for child in group]
+        include_form_icon_sources(children,page.number)
         _form_headings(children)
         forms.append(Block("aside", " ".join(_flat_text(child) for child in children),
                            tuple(SourceRegion(page.number,box) for box in boxes), children=children,

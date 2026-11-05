@@ -61,8 +61,7 @@ class _GlyphResources:
 
     def get_font(self, objid, spec):
         font = self.inner.get_font(objid, spec)
-        if "CosmereDingbats" in str(font.fontname):
-            self.encodings[font] = encoding_glyphs(spec)
+        self.encodings[font] = encoding_glyphs(spec)
         return font
 
 
@@ -109,9 +108,9 @@ class _GlyphDevice(PDFPageAggregatorWithMarkedContent):
                 characters.append(item)
         item.source_cid = cid
         item.text_run = self.text_run
+        item.encoding_glyph = self.rsrcmgr.encodings.get(font, {}).get(cid, "")
         # Hash only candidate symbol fonts. A family name alone never decodes.
         if "CosmereDingbats" in str(font.fontname):
-            item.encoding_glyph = self.rsrcmgr.encodings.get(font, {}).get(cid, "")
             if font not in self.font_digests:
                 streams = [resolve1(v) for k, v in font.descriptor.items() if k.startswith("FontFile")]
                 self.font_digests[font] = (hashlib.sha256(streams[0].get_data()).hexdigest()
@@ -263,9 +262,9 @@ def recover_symbols(page, warn):
     return result
 
 
-def glyph_provenance(char):
+def glyph_provenance(char, source_order=None):
     return Glyph(char.get("raw_text", char["text"]), char["fontname"],
                  char.get("symbol_bbox", tuple(char[k] for k in ("x0", "top", "x1", "bottom"))),
                  char.get("source_cid"), char.get("font_sha256", ""),
                  char.get("symbol", ""), char.get("origin", "text"), char.get("encoding_glyph", ""),
-                 char.get("actual_text", ""))
+                 char.get("actual_text", ""), char.get("text_run"), source_order)

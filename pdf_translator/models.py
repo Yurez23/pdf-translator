@@ -54,6 +54,10 @@ class Glyph:
     origin: str = "text"
     glyph_name: str = ""
     actual_text: str = ""
+    # Preserve the source text-show run and paint order for conservative
+    # geometry-backed repairs inside confirmed forms.
+    text_run: int | None = None
+    source_order: int | None = None
 
 
 @dataclass

@@ -83,3 +83,7 @@ class PageData:
     # Confirmed before caption filtering; individual label boxes retain order.
     quotation_regions: list[BBox] = field(default_factory=list)
     graphic_label_groups: list[tuple[BBox, ...]] = field(default_factory=list)
+    # Painted circles and vertical rules, used only by confirmed form regions.
+    form_circles: list[tuple[BBox, bool | None]] = field(default_factory=list)
+    form_dividers: list[BBox] = field(default_factory=list)
+    form_ink: list[BBox] = field(default_factory=list)
