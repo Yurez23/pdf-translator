@@ -15,7 +15,8 @@ def normalize(text: str) -> str:
     # NFC preserves meaningful typography and mathematical characters.
     text = unicodedata.normalize("NFC", text.translate(_LIGATURES))
     text = re.sub(r"[\s\u00a0\u2007\u202f]+", " ", text).strip()
-    return re.sub(r"(?<=[^\W\d_]) +([.,;:!?])(?=\s|$)",r"\1",text)
+    text = re.sub(r"(?<=[^\W\d_]) +([.,;:!?])(?=\s|$)",r"\1",text)
+    return re.sub(r"(?<=[)\]]) +\.(?=\s|$)",".",text)
 
 
 def vocabulary(texts: Iterable[str]) -> set[str]:
@@ -43,6 +44,8 @@ def join_lines(
             continue
         if result.endswith("\u00ad"):
             result = result[:-1] + line
+        elif re.search(r"\S—$", result):
+            result += line
         elif result.endswith("-"):
             left = re.search(r"([^\W\d_]+)-$", result)
             right = re.match(r"([^\W\d_]+)", line)
@@ -70,7 +73,7 @@ def join_lines(
         # Internal discretionary hyphens are never significant.
         if not result.endswith("\u00ad"):
             result = result.replace("\u00ad", "")
-    return result.replace("\u00ad", "")
+    return normalize(result.replace("\u00ad", ""))
 
 
 def terminal(text: str) -> bool:
