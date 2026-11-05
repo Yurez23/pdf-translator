@@ -548,7 +548,7 @@ class ReferencePdfTests(unittest.TestCase):
             with self.subTest(title=title):
                 self.assertEqual(headings[title].level, level)
                 self.assertIn("#" * level + " " + title, self.result.markdown.splitlines())
-        self.assertEqual(headings["chapter 8"].role, "title_label")
+        self.assertEqual(headings["Chapter 8"].role, "title_label")
         self.assertEqual(sum(b.role == "table_title" for b in headings.values()), 7)
         self.assertIn("**Example Companions by Tier**", self.result.markdown.splitlines())
 

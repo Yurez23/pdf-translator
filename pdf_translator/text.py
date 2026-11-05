@@ -23,6 +23,17 @@ def vocabulary(texts: Iterable[str]) -> set[str]:
     return {match.group().casefold() for text in texts for match in _WORD.finditer(normalize(text))}
 
 
+def logical_label(row) -> str:
+    """Honor explicit one-glyph ActualText on an established display label."""
+    parts = []
+    for word in row.words:
+        raw = "".join(g.text for g in word.glyphs)
+        parts.append("".join(g.actual_text or g.text for g in word.glyphs)
+                     if word.glyphs and raw == word.text and not any(g.symbol for g in word.glyphs)
+                     else word.text)
+    return " ".join(parts)
+
+
 def is_list(text: str) -> bool:
     return bool(_LIST.match(text))
 

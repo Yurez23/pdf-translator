@@ -14,6 +14,7 @@ from .models import Block, ConversionWarning
 from .paragraphs import italic
 from .heading_context import centered, face, hint_for, overlap
 from .page_data import PageData
+from .text import logical_label
 
 
 def graphic_label(line, body: float) -> bool:
@@ -138,6 +139,9 @@ def assign_heading_levels(
     for block in headings:
         if block.role:
             block.level = block.outline_level = 0
+            if (block.role == 'title_label' and len(block.lines) == 1
+                    and any(word.text.isdecimal() for word in block.lines[0].words)):
+                block.text = logical_label(block.lines[0])
     main = [block for block in headings if not block.role and id(block) not in roots|sections]
     bands: list[list[float]] = []
     for size in sorted((styles[id(block)].size for block in main), reverse=True):

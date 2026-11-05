@@ -162,6 +162,7 @@ CLI: __main__ / console script → cli.main
 | [tests/test_form_details.py](../tests/test_form_details.py) | PDF-24. Статистики и поля, отметки рангов, границы специализаций, сохранение значков и текста заполненных форм. |
 | [tests/test_remaining_captions.py](../tests/test_remaining_captions.py) | PDF-25. Подписи узких предметов и внешние подписи форм, отрицательные таблицы и игровые метки. |
 | [tests/test_punctuation_joins.py](../tests/test_punctuation_joins.py) | PDF-26. Пробелы на стыках строк и у точек, сохранение исходных отбивок и решений переносов. |
+| [tests/test_verse_layout.py](../tests/test_verse_layout.py) | PDF-27. Строки эпиграфа и соответствий ячеек, явный регистр меток и отрицательные обычные цитаты. |
 | [tests/test_translation.py](../tests/test_translation.py) | Планы, разметка, валидация, файлы, CLI и бюджет. Независимая scripted-заглушка без наследования Gemini; сеть запрещена. |
 | [tests/test_chunking.py](../tests/test_chunking.py) | Кап/CLI 16000, разделители, подразделы и вложенность, абзацы/предложения/сокращения, заголовки, маркеры, большие/малые контейнеры, токенное дробление, детерминизм и несовместимый старый план. Только офлайн. |
 | [tests/test_translation_ports.py](../tests/test_translation_ports.py) | DIP: независимый не-LLM адаптер, порядок ID, контекст/маркеры, дробление, бюджет, resume, несовместимость провайдеров/ревизий/старого журнала. Свежий процесс с запрещёнными импортами Gemini/Google/httpx выполняет ядро. |

@@ -21,6 +21,7 @@ from .form_details import form_detail_groups, include_form_icon_sources
 from .models import BBox, Block, ConversionWarning, HyphenResolver, Line, SourceRegion, Word, union_bbox
 from .symbols import LABELS
 from .text import is_list, join_lines, normalize, terminal as _terminal
+from .text import logical_label as _logical_label
 from collections.abc import Callable, Sequence
 
 type Warn = Callable[[ConversionWarning], None]
@@ -445,14 +446,26 @@ def _diagram_banner(row: Line, page: PageData) -> bool:
     return False
 
 
-def _logical_label(row: Line) -> str:
-    parts = []
-    for word in row.words:
-        raw = "".join(g.text for g in word.glyphs)
-        parts.append("".join(g.actual_text or g.text for g in word.glyphs)
-                     if word.glyphs and raw == word.text and not any(g.symbol for g in word.glyphs)
-                     else word.text)
-    return " ".join(parts)
+def _verse_stanzas(block: Block, page: PageData) -> None:
+    lines = block.lines
+    if (not block.children or len(lines) < 6
+            or not quotation_opener(lines[0], lines[1], page.body_size)
+            or not all(italic(line) for line in lines[1:])
+            or any(abs((line.bbox[0]+line.bbox[2]-lines[0].bbox[0]-lines[0].bbox[2])/2)
+                   > page.body_size for line in lines)):
+        return
+    gaps = [b.bbox[1]-a.bbox[3] for a,b in zip(lines[1:],lines[2:])]
+    if min(gaps) < 0 or max(gaps)-min(gaps) < page.body_size*.2:
+        return
+    groups = [[lines[0]], [lines[1]]]
+    for line in lines[2:]:
+        if line.bbox[1]-groups[-1][-1].bbox[3] > min(gaps)+page.body_size*.2:
+            groups.append([])
+        groups[-1].append(line)
+    block.children = [Block('paragraph', '\n'.join(normalize(line.text) for line in group),
+                            (SourceRegion(page.number,union_bbox([line.bbox for line in group])),),
+                            lines=group, body_size=page.body_size, role='verse' if i else '')
+                      for i,group in enumerate(groups)]
 
 
 def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
@@ -659,6 +672,9 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
                     continue
         quotations.append(block)
     ordered = quotations
+    for block in ordered:
+        if block.role == 'quotation':
+            _verse_stanzas(block, page)
     if rotated:
         warn(ConversionWarning("rotated_text", "Поворот текста не поддерживается: фрагмент сохранён отдельно для проверки.", (page.number,)))
         text = join_lines((line.text for line in group_lines(rotated, page.body_size)), lexicon, page.number, warn, resolver)

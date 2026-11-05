@@ -27,7 +27,10 @@ def render(blocks: list[Block]) -> tuple[str, str]:
             txt.append(child_txt.rstrip("\n"))
             continue
         content=annotate_cells(block) if block.diagram and block.diagram.status in ('cells','correspondence') else block.text
-        if block.kind == "table":
+        if block.role == 'verse':
+            md.append('  \n'.join(_paragraph(line) for line in content.split('\n')))
+            txt.append(content)
+        elif block.kind == "table":
             rows = [[_escape(cell).replace("|", r"\|") for cell in row] for row in block.rows]
             if not rows:
                 continue
@@ -82,6 +85,6 @@ def render(blocks: list[Block]) -> tuple[str, str]:
             txt.append(content)
         if block.diagram and block.diagram.status=='correspondence':
             generated=references(block.diagram)
-            md.append('\n'.join('> '+line for line in generated.splitlines()))
+            md.append('  \n'.join('> '+line for line in generated.splitlines()))
             txt.append(generated)
     return ("\n\n".join(md) + "\n" if md else "", "\n\n".join(txt) + "\n" if txt else "")
