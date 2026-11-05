@@ -570,14 +570,18 @@ class OptionalLocalHierarchyTests(unittest.TestCase):
                          {'Getting Started':2,'The First Step':3,'Character Creation':3,
                           'Calling for Skill Tests':2,'Using the Plot Die':2,'Raising the Stakes':3})
 
-    def test_weapon_illustration_labels_are_retained_outside_outline(self):
+    def test_weapon_captions_are_excluded_and_table_names_survive(self):
         p=Path(__file__).resolve().parents[1]/'example/9. Chapter 7 Items.pdf'
         if not p.is_file():self.skipTest('Local chapter PDF not supplied')
         r=convert_pdf(p,pages='6-7',hyphen_resolver=lambda _:False)
         names={'knife','jaVelin','mace','longbow','poleaxe'}
         labels=[b for b in r.blocks if b.text in names]
-        self.assertEqual({b.text for b in labels},names)
-        self.assertTrue(all(b.role=='graphic_label' and b.outline_level==0 for b in labels))
+        self.assertEqual(labels,[])
+        tables=[b for b in r.blocks if b.kind=='table']
+        self.assertEqual(len(tables),2)
+        self.assertEqual(sum(len(row) for b in tables for row in b.rows),140)
+        self.assertTrue({'Knife','Javelin','Mace','Longbow','Poleaxe'} <=
+                        {row[0] for b in tables for row in b.rows[1:]})
 
     def test_same_style_has_source_confirmed_different_depth_in_statistics(self):
         from pdf_translator.headings import _style

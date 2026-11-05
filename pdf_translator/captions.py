@@ -63,12 +63,13 @@ def _related_images(line: Line, images: list[BBox], size: float) -> set[int]:
     center = (line.bbox[0]+line.bbox[2]) / 2
     for index, image in enumerate(images):
         image_width = image[2]-image[0]
-        aligned = (_overlap(line.bbox, image) >= width * 0.9
+        aligned = (_overlap(line.bbox, image) >= min(width, image_width) * 0.9
                    and abs(center-(image[0]+image[2])/2) <= image_width * 0.4)
         above = -size * 2 <= image[1]-line.bbox[3] <= size * 4
         below = -size * 2 <= line.bbox[1]-image[3] <= size * 4
-        inside = (image[0] <= line.bbox[0] and line.bbox[2] <= image[2]
-                  and image[1] <= line.bbox[1] and line.bbox[3] <= image[3])
+        tolerance = size*.25
+        inside = (image[0]-tolerance <= line.bbox[0] and line.bbox[2] <= image[2]+tolerance
+                  and image[1]-tolerance <= line.bbox[1] and line.bbox[3] <= image[3]+tolerance)
         if aligned and (above or below or inside):
             matches.add(index)
     return matches
@@ -335,16 +336,37 @@ def remove_background_captions(pages: list[PageData]) -> None:
             # Its historical font/colour style key has no size or context guard.
 
 
+def _remove_form_captions(page: PageData) -> None:
+    """Exclude external display sentences with explicit small-cap encoding."""
+    ignored = set()
+    for form in page.form_regions:
+        retained = []
+        for box in form.attachments:
+            words = [w for w in page.words if contains(box, w)]
+            letters = [g for w in words for g in w.glyphs if g.text.isalpha()]
+            display = (letters and any(g.glyph_name.endswith('.sc') for g in letters)
+                       and all(re.fullmatch(r'[a-z]\.sc|[A-Z]', g.glyph_name) for g in letters))
+            if (display and all(w.color and max(w.color)-min(w.color) > .05 for w in words)
+                    and not any(g.symbol for w in words for g in w.glyphs)):
+                ignored.update(id(w) for w in words)
+            else:
+                retained.append(box)
+        form.attachments = tuple(retained)
+    page.words = [w for w in page.words if id(w) not in ignored]
+
+
 def remove_figure_captions(page: PageData, *, known_styles: set[tuple] | None = None) -> None:
     """Remove short, distinctively styled figure labels outside prose flow.
 
     Uncertain fragments are retained. Tables, table titles and framed sidebars
     are protected even if a decorative image lies behind them.
     """
+    _remove_form_captions(page)
     area = page.width * page.height
     images = [box for box in page.images
-              if box[2]-box[0] >= 60 and box[3]-box[1] >= 60
-              and area * 0.01 <= (box[2]-box[0]) * (box[3]-box[1]) < area * 0.85
+              if max(box[2]-box[0], box[3]-box[1]) >= 60
+              and min(box[2]-box[0], box[3]-box[1]) >= page.body_size
+              and page.body_size**2*4 <= (box[2]-box[0]) * (box[3]-box[1]) < area * 0.85
               and not (box[2]-box[0] >= page.width * 0.9 and box[3]-box[1] >= page.height * 0.9)]
     if not images:
         return

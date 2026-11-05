@@ -526,9 +526,9 @@ class OptionalCharacterFormTests(unittest.TestCase):
     def test_real_form_matches_all_raw_printed_characters_except_page_footer(self):
         # This independently reads the source text, not a previous converter output
         # or the detector's own region bounds. Physical p5 is a standalone form;
-        # its only text below 730pt is the chapter/page running footer.
+        # The external display caption and running footer are outside the form.
         with pdfplumber.open(LOCAL_CHARACTER_PDF, unicode_norm="NFC") as pdf:
-            raw = "".join(char["text"] for char in pdf.pages[4].chars if char["top"] < 730)
+            raw = "".join(char["text"] for char in pdf.pages[4].chars if char["top"] < 693)
         def characters(text):
             ligatures = str.maketrans({"ﬀ":"ff", "ﬁ":"fi", "ﬂ":"fl", "ﬃ":"ffi", "ﬄ":"ffl", "ﬅ":"st", "ﬆ":"st"})
             return Counter(c for c in unicodedata.normalize("NFC", text.translate(ligatures)).casefold() if not c.isspace())
@@ -552,7 +552,7 @@ class OptionalCharacterFormTests(unittest.TestCase):
         self.assertEqual(self.form_only.text.count("[special activation]"), 1)
         self.assertEqual(self.form_only.text.count("[reaction]"), 1)
         self.assertEqual(sum(b.kind == "aside" for b in form.children), 3)
-        self.assertIn("The fronT of your compleTed characTer sheeT", form.text)
+        self.assertNotIn("of your compleTed characTer sheeT", form.text)
         self.assertTrue(any(b.kind == "table" for b in walk(form.children)))
         self.assertTrue(all(s.page == 5 for b in walk([form]) for s in b.sources))
         self.assertEqual(render(self.form_only.blocks), (self.form_only.markdown, self.form_only.text))
