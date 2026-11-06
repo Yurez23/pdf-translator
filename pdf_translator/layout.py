@@ -468,6 +468,36 @@ def _verse_stanzas(block: Block, page: PageData) -> None:
                       for i,group in enumerate(groups)]
 
 
+def _form_entry_rows(words: list[Word], frame: BBox, size: float) -> list[Line]:
+    """Recognize two aligned sets of short entries under one printed label."""
+    rows = group_lines(words, size, split_gaps=True)
+    if len(rows) < 5:
+        return []
+    label, *entries = rows
+    center = (frame[0] + frame[2]) / 2
+    if (abs((label.bbox[0] + label.bbox[2]) / 2 - center) > size
+            or label.bbox[1] - frame[1] > size
+            or label.bbox[3] > min(row.bbox[1] for row in entries)):
+        return []
+    entry_fonts = {line_font(row) for row in entries}
+    if len(entry_fonts) != 1 or line_font(label) in entry_fonts:
+        return []
+    left = [row for row in entries if row.bbox[2] <= center]
+    right = [row for row in entries if row.bbox[0] >= center]
+    if min(len(left), len(right)) < 2 or len(left) + len(right) != len(entries):
+        return []
+    if right[0].bbox[0] - max(row.bbox[2] for row in left) <= size * 3:
+        return []
+    for column, edge in ((left, frame[0]), (right, center)):
+        if (column[0].bbox[0] - edge > size * 1.5
+                or any(abs(row.bbox[0] - column[0].bbox[0]) > size * .3 for row in column)
+                or any(b.bbox[1] - a.bbox[3] < size * .35 for a, b in zip(column, column[1:]))):
+            return []
+    if any(abs(a.bbox[3] - b.bbox[3]) > size * .25 for a, b in zip(left, right)):
+        return []
+    return [label, *left, *right]
+
+
 def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
                  special_blocks: Sequence[Block] = ()) -> list[Block]:
     table_blocks = _table_blocks(page, lexicon, warn, resolver)
@@ -529,7 +559,13 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
         owned_tables.update(id(b) for b in inner_tables)
         is_card = frame in page.diagram_boxes
         inner_gutter = _gutter(inside,page) if frame[2]-frame[0] >= page.width*.6 else None
-        if inner_gutter:
+        entry_rows = (_form_entry_rows(inside, frame, page.body_size)
+                      if page.form_regions and not is_card and not inner_tables else [])
+        if entry_rows:
+            children = [Block("paragraph", normalize(row.text.replace("\u00ad", "")),
+                              (SourceRegion(page.number, row.bbox),), lines=[row],
+                              body_size=page.body_size) for row in entry_rows]
+        elif inner_gutter:
             split,_,_ = inner_gutter
             children = []
             for left in (True,False):
@@ -546,7 +582,8 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
             rotated = [w for w in rotated if id(w) not in owned_rotated]
         if is_card:
             join_card_title(children, frame)
-        children = merge_continuations(children,lexicon,warn,resolver)
+        if not entry_rows:
+            children = merge_continuations(children,lexicon,warn,resolver)
         for child in children:
             if child.kind == "heading":
                 child.role = "aside_title"

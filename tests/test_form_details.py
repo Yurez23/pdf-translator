@@ -8,7 +8,7 @@ from pdf_translator.export import render
 from pdf_translator.form_details import (_circle_marks, _closing_parenthesis,
     _defense_groups, _path_digest, _rank_groups, _resource_groups,
     _small_caps, _source_order_word, prepare_form_details)
-from pdf_translator.layout import _table_blocks
+from pdf_translator.layout import _table_blocks, layout_page
 from pdf_translator.models import Glyph, Word
 from pdf_translator.page_data import FormRegion, PageData, TableData
 from pdf_translator.table_structure import itemized_columns
@@ -65,6 +65,33 @@ def table_fixture(width=100):
 
 
 class FormDetailTests(unittest.TestCase):
+    def test_framed_form_entries_use_column_order_and_keep_multiword_values(self):
+        frame = (10, 10, 290, 92)
+        form = FormRegion((0, 0, 300, 100), (frame,))
+        title = word('LANGUAGES', (115, 13, 185, 23), font='printed')
+        left = [word(name, (16, y, 62, y+10), font='value')
+                for name, y in [('French', 27), ('German', 45), ('Italian', 63)]]
+        right = [word('American', (155, 27, 201, 37), font='value'),
+                 word('Sign', (204, 27, 226, 37), font='value'),
+                 word('Language', (229, 27, 275, 37), font='value'),
+                 word('Spanish', (155, 45, 196, 55), font='value')]
+        page = PageData(1, 300, 100, [title, *left, *right], 10,
+                        form_regions=[form], frames=[frame])
+        blocks = layout_page(page, set(), self.fail)
+        panel = blocks[0].children[0]
+        self.assertEqual([b.text for b in panel.children],
+                         ['LANGUAGES', 'French', 'German', 'Italian',
+                          'American Sign Language', 'Spanish'])
+        for output in render(blocks):
+            self.assertIn('American Sign Language', output)
+            self.assertNotIn('French American', output)
+
+        # Close-set lines could be wrapped text, even with the same anchors.
+        close = [replace(w, bbox=(w.bbox[0], 38, w.bbox[2], 48))
+                 if w.bbox[1] == 45 else w for w in page.words]
+        old_panel = layout_page(replace(page, words=close), set(), self.fail)[0].children[0]
+        self.assertIn('French American Sign Language', old_panel.text)
+
     def test_filled_circles_need_matching_outline_shape_and_color(self):
         form=FormRegion((0,0,100,100),())
         hollow=circle(10,20)
