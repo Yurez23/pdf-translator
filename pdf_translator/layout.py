@@ -498,6 +498,28 @@ def _form_entry_rows(words: list[Word], frame: BBox, size: float) -> list[Line]:
     return [label, *left, *right]
 
 
+def _restore_framed_question_title(children: list[Block], frame: BBox, size: float) -> None:
+    if len(children) < 2:
+        return
+    title, body = children[:2]
+    if (title.kind != "paragraph" or title.role or len(title.lines) != 1
+            or not title.text.endswith(("?", "!")) or body.kind != "paragraph"
+            or body.role or not body.lines):
+        return
+    label, first = title.lines[0], body.lines[0]
+    colors = {w.color for w in label.words}
+    # Punctuation normally disqualifies a small heading. A contrasting,
+    # separately spaced label at the top of a frame has its own title style.
+    if (label.source_length < 80 and all(bold(w) for w in label.words)
+            and len(colors) == 1 and None not in colors
+            and colors.isdisjoint(w.color for w in first.words)
+            and label.size >= first.size * 1.1
+            and abs(label.text_left - first.text_left) <= size * .35
+            and -size * .2 <= label.bbox[1] - frame[1] <= size
+            and size * .65 <= first.bbox[1] - label.bbox[3] <= size * 2):
+        title.kind = "heading"
+
+
 def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
                  special_blocks: Sequence[Block] = ()) -> list[Block]:
     table_blocks = _table_blocks(page, lexicon, warn, resolver)
@@ -584,6 +606,8 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
             join_card_title(children, frame)
         if not entry_rows:
             children = merge_continuations(children,lexicon,warn,resolver)
+        if not page.form_regions and not is_card and not inner_tables:
+            _restore_framed_question_title(children, frame, page.body_size)
         for child in children:
             if child.kind == "heading":
                 child.role = "aside_title"

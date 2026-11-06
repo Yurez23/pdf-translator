@@ -65,6 +65,31 @@ class AsideLayoutTests(unittest.TestCase):
         self.assertEqual([b.children[0].text for b in asides], ["First sidebar", "Second sidebar"])
         self.assertIn("physical line break.\n\n> **Second sidebar**", result.markdown)
 
+    def test_contrasting_question_title_stays_inside_sidebar(self):
+        def draw(c):
+            lines(c, ["Main Section"], top=90, size=15, font="Helvetica-Bold")
+            for top, title, contrast in [(160, "Which road?", True),
+                                          (370, "What can we see?", False)]:
+                c.setFillColor(colors.lightgrey)
+                c.rect(50, PAGE[1] - top - 170, 240, 170, fill=1)
+                if contrast:
+                    c.setFillColor(colors.navy)
+                    c.rect(50, PAGE[1] - top - 24, 240, 24, fill=1, stroke=0)
+                c.setFillColor(colors.white if contrast else colors.black)
+                lines(c, [title], x=60, top=top+16, size=11, font="Helvetica-Bold")
+                c.setFillColor(colors.black)
+                lines(c, ["This paragraph provides useful context.",
+                          "Its second line stays with the first."],
+                      x=60, top=top+38, size=10)
+        result = self.convert(draw)
+        self.assertEqual([b.text for b in result.blocks if b.kind == "heading"],
+                         ["Main Section"])
+        asides = [b for b in result.blocks if b.kind == "aside"]
+        self.assertEqual([b.children[0].role for b in asides], ["aside_title", ""])
+        self.assertIn("> **Which road?**\n>\n> This paragraph", result.markdown)
+        self.assertIn("> What can we see?\n>\n> This paragraph", result.markdown)
+        self.assertIn("Which road?\n\nThis paragraph", result.text)
+
     def test_sidebar_without_a_heading_retains_two_paragraphs(self):
         def draw(c):
             c.setFillColor(colors.lightgrey)
