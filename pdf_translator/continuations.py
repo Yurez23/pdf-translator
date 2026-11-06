@@ -83,6 +83,26 @@ def _capitalized_wrap(previous: Block, following: Block, between: list[Block]) -
             and first.words[0].text.isalpha())
 
 
+def _append_continuation(previous: Block, following: Block, lexicon: set[str],
+                         warn: Warn, resolver: HyphenResolver | None) -> None:
+    previous.text = join_lines([previous.text, following.text], lexicon,
+                               following.sources[0].page, warn, resolver)
+    previous.sources += following.sources
+    previous.lines += following.lines
+    previous.container_left = following.container_left
+    previous.container_width = following.container_width
+
+
+def merge_routed_page_seams(blocks: list[Block], seams: list[tuple[Block, Block]],
+                            conventions: ParagraphConventions, lexicon: set[str],
+                            warn: Warn, resolver: HyphenResolver | None) -> None:
+    """Join complete sentences only after a frame's page route is confirmed."""
+    for previous, following in seams:
+        if conventions.continues_at_page_seam(previous, following):
+            _append_continuation(previous, following, lexicon, warn, resolver)
+            blocks.remove(following)
+
+
 def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, resolver: HyphenResolver | None = None,
                         *, empty_pages: set[int] | None = None,
                         selected_pages: set[int] | None = None,
@@ -142,11 +162,7 @@ def merge_continuations(blocks: list[Block], lexicon: set[str], warn: Warn, reso
                         and (selected_pages is None or {a.page, b.page} <= selected_pages)
                         and paragraph_conventions.continues(prev, block))
             if (next_page or next_column) and (unfinished or complete):
-                prev.text = join_lines([prev.text, block.text], lexicon, b.page, warn, resolver)
-                prev.sources += block.sources
-                prev.lines += block.lines
-                prev.container_left = block.container_left
-                prev.container_width = block.container_width
+                _append_continuation(prev, block, lexicon, warn, resolver)
                 continue
         result.append(block)
     return result
@@ -193,8 +209,5 @@ def _merge_across_forms(previous: Block, following: Block, between: list[Block],
         pages = tuple(range(a.page,b.page+1))
         warn(ConversionWarning("insert_continuation", "Возможное продолжение через бланк не соединено: геометрия неоднозначна; проверьте границу абзаца.", pages))
         return False
-    previous.text = join_lines([previous.text,following.text],lexicon,b.page,warn,resolver)
-    previous.sources += following.sources
-    previous.lines += following.lines
-    previous.container_left,previous.container_width = following.container_left,following.container_width
+    _append_continuation(previous, following, lexicon, warn, resolver)
     return True

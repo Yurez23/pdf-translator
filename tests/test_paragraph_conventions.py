@@ -71,6 +71,24 @@ class ParagraphConventionTests(unittest.TestCase):
     def test_short_complete_last_line_is_ambiguous(self):
         self.assertEqual(len(self.merge(paragraph(page=3, top=680, last_width=150))), 2)
 
+    def test_routed_page_seam_requires_local_convention_and_first_word_overflow(self):
+        samples = training()
+        remote = [paragraph(page=7, top=y) for y in (110, 138)]
+        profile = infer_paragraph_conventions(samples + remote)
+        previous = paragraph(page=1, top=680)
+        following = paragraph("Capitalised next sentence.", page=2, top=50)
+        first = following.lines[0]
+        first.words = [Word("Capitalised", (50, 50, 105, 60), 10, "Helvetica"),
+                       Word("next", (108, 50, 128, 60), 10, "Helvetica")]
+        self.assertFalse(profile.continues(previous, following))
+        self.assertTrue(profile.continues_at_page_seam(previous, following))
+        skipped = copy.deepcopy(following)
+        skipped.sources = (SourceRegion(3, following.sources[0].bbox),)
+        self.assertFalse(profile.continues_at_page_seam(previous, skipped))
+        first.words = [Word("A", (50, 50, 55, 60), 10, "Helvetica"),
+                       Word("short", (58, 50, 82, 60), 10, "Helvetica")]
+        self.assertFalse(profile.continues_at_page_seam(previous, following))
+
     def test_absent_weak_or_single_container_convention_does_not_authorize_merge(self):
         for samples in ([], training()[:2], training()[:3]):
             with self.subTest(count=len(samples)):

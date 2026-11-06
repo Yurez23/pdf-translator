@@ -186,16 +186,20 @@ def _page_opener(blocks: list[Block], index: int, pages: dict[int, PageData]) ->
     return end
 
 
-def order_asides(blocks: list[Block], pages: Sequence[PageData]) -> list[Block]:
-    """Move only insets with an independently established section route."""
+def order_asides(blocks: list[Block], pages: Sequence[PageData], *,
+                 page_seams: list[tuple[Block, Block]] | None = None) -> list[Block]:
+    """Move insets and optionally record body pairs on confirmed page routes."""
     result = list(blocks)
     page_map = {page.number: page for page in pages}
     for aside in blocks:
         if aside.kind != "aside":
             continue
         index = next(i for i, block in enumerate(result) if block is aside)
-        end = (_page_opener(result, index, page_map) or _across_column(result, index, page_map)
-               or _across_page(result, index, page_map))
+        end = _page_opener(result, index, page_map) or _across_column(result, index, page_map)
+        if end is None:
+            end = _across_page(result, index, page_map)
+            if end is not None and page_seams is not None:
+                page_seams.append((result[index - 1], result[index + 1]))
         if end is not None:
             result.insert(end - 1, result.pop(index))
     return result

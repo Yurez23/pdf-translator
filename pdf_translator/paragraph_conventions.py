@@ -86,6 +86,27 @@ class ParagraphConventions:
                    and abs(line.size - size) <= size * .05
                    for line in following.lines[1:])
 
+    def continues_at_page_seam(self, previous: Block, following: Block) -> bool:
+        """Require local indentation and a first word that could not fit."""
+        a, b = previous.sources[-1], following.sources[0]
+        if (b.page != a.page + 1 or not terminal(previous.text)
+                or not _ordinary(previous) or not _ordinary(following)):
+            return False
+        columns = {a.page: previous.container_left, b.page: following.container_left}
+        local = ParagraphConventions(tuple(s for s in self.starts if s.page in columns
+                                          and abs(s.left - columns[s.page]) <= s.size * .2))
+        if not local.continues(previous, following):
+            return False
+        last, first = previous.lines[-1], following.lines[0]
+        if len(first.words) < 2:
+            return False
+        word, next_word = first.words[:2]
+        gap = next_word.bbox[0] - word.bbox[2]
+        edge = previous.container_left + previous.container_width
+        width = word.bbox[2] - word.bbox[0]
+        return (0 < gap <= first.size * .75
+                and last.bbox[2] + gap + width > edge + first.size * .1)
+
 
 def infer_paragraph_conventions(blocks: list[Block]) -> ParagraphConventions:
     starts = []

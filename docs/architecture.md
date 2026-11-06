@@ -69,7 +69,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/symbol_signatures.py](../pdf_translator/symbol_signatures.py) | Изолированные нормализованные сигнатуры с доказательствами в документации; без условий по странице, названию или прозе. |
 | [pdf_translator/geometry.py](../pdf_translator/geometry.py) | `contains`, `body_size`, `group_lines`: общие координаты и строки. |
 | [pdf_translator/paragraphs.py](../pdf_translator/paragraphs.py) | Типографические правила вводных и висячих пунктов, продолжения жирной фразы, отступа новой первой строки и курсивных полей. |
-| [pdf_translator/paragraph_conventions.py](../pdf_translator/paragraph_conventions.py) | PDF-07: нейтральные образцы внутренних абзацных границ, вывод документного отступа и консервативное доказательство продолжения после законченного предложения; без извлечения, callbacks, экспорта и I/O. |
+| [pdf_translator/paragraph_conventions.py](../pdf_translator/paragraph_conventions.py) | PDF-07 и PDF-31. Образцы абзацных границ, документные отступы и отдельная проверка местных отступов и ширины первого слова на подтверждённом стыке страниц. |
 | [pdf_translator/circular_labels.py](../pdf_translator/circular_labels.py) | Распознаёт векторные окружности, группирует текст на нижней дуге и сверяет склейку с таблицей. |
 | [pdf_translator/diagrams.py](../pdf_translator/diagrams.py) | Узкий геометрический детектор раздельных карточек: белые панели, повторяемые ширины, настоящие промежутки и корневые узлы; без интерпретации стрелок. |
 | [pdf_translator/pdf_diagrams.py](../pdf_translator/pdf_diagrams.py) | PDF-адаптер линейных paths, заполненных указателей и clipping; прямоугольные clip сохраняются, неподдержанные отсекаются от вывода связей. |
@@ -83,7 +83,7 @@ CLI: __main__ / console script → cli.main
 | [pdf_translator/table_structure.py](../pdf_translator/table_structure.py) | Нейтральная проверка полного покрытия сетки, владельцев слов/слотов, окрашенных шапок и групп; ремонт конфликтующей линейной геометрии, нормализация в прямоугольные секции. Без PDF SDK, I/O и угадывания по прозе. |
 | [pdf_translator/preprocessing.py](../pdf_translator/preprocessing.py) | Вертикальные имена, буквицы и повторяющиеся колонтитулы; прежний порядок эвристик. |
 | [pdf_translator/continuations.py](../pdf_translator/continuations.py) | Склейка продолжений между страницами/колонками; отдельная ветвь через формы с явными выбранными страницами и страницами вставок. Проверки шрифта, отступов, скобок и однозначного маршрута; форма не считается пустой страницей. |
-| [pdf_translator/aside_order.py](../pdf_translator/aside_order.py) | Консервативная перестановка готовых рамок и цитат относительно подтверждённого раздела после склейки; без изменения содержимого и исходных областей. |
+| [pdf_translator/aside_order.py](../pdf_translator/aside_order.py) | Перестановка готовых рамок и цитат относительно подтверждённого раздела. Может передать доказанный маршрут рамки для дополнительной проверки стыка прозы в `continuations`. |
 | [pdf_translator/file_outputs.py](../pdf_translator/file_outputs.py) | Общая подготовка и публикация UTF-8-файлов; path/overwrite policy задаёт вызывающий сценарий. |
 | [pdf_translator/jsonl.py](../pdf_translator/jsonl.py) | Файловый `JsonlSink`: ограниченные части, OS-lock, ротация, retention и защита от ссылок. |
 | [pdf_translator/heading_context.py](../pdf_translator/heading_context.py) | Нейтральное документное обучение баннеров до фильтра подписей, геометрические свидетельства вспомогательных ролей; без PDF SDK, рендеринга, удаления текста или I/O. |

@@ -6,7 +6,7 @@ from pathlib import Path
 from .export import render
 from .headings import assign_heading_levels
 from .layout import layout_page
-from .continuations import merge_continuations
+from .continuations import merge_continuations, merge_routed_page_seams
 from .aside_order import order_asides
 from .paragraph_conventions import infer_paragraph_conventions
 from .diagram_mappings import attach_mappings
@@ -80,7 +80,9 @@ def convert_pdf(input_path: str | Path, *, pages: str | Sequence[int] | None = N
         blocks = merge_continuations(blocks, lexicon, warn, hyphen_resolver, empty_pages=empty_pages,
                                      selected_pages=selected_pages, insert_pages=insert_pages,
                                      paragraph_conventions=paragraph_conventions)
-        blocks = order_asides(blocks, extracted)
+        page_seams = []
+        blocks = order_asides(blocks, extracted, page_seams=page_seams)
+        merge_routed_page_seams(blocks, page_seams, paragraph_conventions, lexicon, warn, hyphen_resolver)
     with span("conversion.render"):
         markdown, text = render(blocks)
     if not text.strip():

@@ -158,19 +158,26 @@ class LocalAsideOrderTests(unittest.TestCase):
             for prefix in prefixes:
                 cursor = output.index(prefix, cursor) + len(prefix)
 
-    def test_cross_page_section_remains_distinct_paragraphs(self):
+    def test_cross_page_section_rejoins_prose_and_keeps_following_paragraph(self):
         self.assert_order(self.hero, "Vriztl Engineer", "The engineers of Thaylenah",
                           "After many generations of this diligent recordkeeping",
                           "Building a Vriztl Engineer", "Artifabrians", "Scholar Key Talent")
         first = next(b for b in self.hero.blocks if b.text.startswith("The engineers of Thaylenah"))
-        second = next(b for b in self.hero.blocks if b.text.startswith("After many generations"))
-        self.assertEqual([s.page for s in first.sources], [39])
-        self.assertEqual([s.page for s in second.sources], [40])
+        self.assertEqual([s.page for s in first.sources], [39, 40])
+        self.assertIn("future successes. After many generations", first.text)
+        following = self.hero.blocks[self.hero.blocks.index(first) + 1]
+        self.assertTrue(following.text.startswith("Building a Vriztl Engineer."))
+        aside = next(b for b in self.hero.blocks if b.kind == "aside" and b.text.startswith("Artifabrians"))
+        self.assertEqual([s.page for s in aside.sources], [39])
+        for output in (self.hero.markdown, self.hero.text):
+            self.assertIn("future successes. After many generations", output)
 
     def test_page_selection_excludes_the_intervening_page(self):
         result = convert_pdf(ROOT / "example/6. Chapter 4 Heroic Paths.pdf", pages="39,41",
                              hyphen_resolver=lambda _: False)
         first = next(i for i, b in enumerate(result.blocks) if b.text.startswith("The engineers of Thaylenah"))
+        self.assertEqual([s.page for s in result.blocks[first].sources], [39])
+        self.assertNotIn("After many generations of this diligent recordkeeping", result.text)
         aside = result.blocks[first + 1]
         self.assertEqual((aside.kind, aside.sources[0].page), ("aside", 39))
         self.assertTrue(aside.text.startswith("Artifabrians"))
