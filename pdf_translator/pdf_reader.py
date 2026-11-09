@@ -78,7 +78,8 @@ def _overprinted_spaces(chars) -> set[int]:
     ignored = set()
     for left, space, right in zip(chars, chars[1:], chars[2:]):
         if (not space["text"].isspace() or not left["text"].isalpha()
-                or not right["text"].isalpha() or not _same_baseline(left, right)
+                or not (right["text"].isalpha() or right["text"] == "-")
+                or not _same_baseline(left, right)
                 or not _same_baseline(left, space)
                 or len({c["fontname"] for c in (left, space, right)}) != 1):
             continue
