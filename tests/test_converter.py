@@ -94,16 +94,17 @@ class WordSpacingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "wraps.pdf"
             canvas = Canvas(str(path), pagesize=PAGE)
-            for prefix, tail, top in [
-                ("The passage is lit by torch", "light from a nearby wall.", 110),
-                ("A sentry watches from a frost", "gate high above the path.", 180),
+            for prefix, tail, top, gap in [
+                ("The passage is lit by torch", "light from a nearby wall.", 110, .32),
+                ("A sentry watches from a frost", "gate high above the path.", 180, .15),
+                ("The guide follows a well", "known route through the hills.", 250, .32),
             ]:
                 lines(canvas, [prefix], top=top)
-                x = 50 + canvas.stringWidth(prefix, "Helvetica", 10) + .15
+                x = 50 + canvas.stringWidth(prefix, "Helvetica", 10) + gap
                 lines(canvas, [" "], x=x, top=top)
                 lines(canvas, ["-"], x=x, top=top)
                 lines(canvas, [tail], top=top+14)
-            lines(canvas, ["Torchlight reveals a marker -", "then the path turns."], top=250)
+            lines(canvas, ["Torchlight reveals a marker -", "then the well-known path turns."], top=320)
             canvas.save()
             issues = []
             result = convert_pdf(path, hyphen_resolver=lambda issue: issues.append(issue) or False)
@@ -111,6 +112,7 @@ class WordSpacingTests(unittest.TestCase):
         for output in (result.markdown, result.text):
             self.assertIn("lit by torchlight from", output)
             self.assertIn("frost-gate high", output)
+            self.assertIn("a well-known route", output)
             self.assertIn("marker - then", output)
         self.assertEqual([issue.hyphenated for issue in issues], ["frost-gate"])
 

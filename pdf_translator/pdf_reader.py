@@ -84,7 +84,9 @@ def _overprinted_spaces(chars) -> set[int]:
                 or len({c["fontname"] for c in (left, space, right)}) != 1):
             continue
         tolerance = left["size"] * .025
-        if (abs(right["x0"] - left["x1"]) <= tolerance
+        # A hyphen can have slightly wider side spacing than adjacent letters.
+        max_gap = left["size"] * .04 if right["text"] == "-" else tolerance
+        if (abs(right["x0"] - left["x1"]) <= max_gap
                 and any(c["x0"] - tolerance <= space["x0"]
                         and space["x1"] <= c["x1"] + tolerance for c in (left, right))):
             ignored.add(id(space))
