@@ -57,6 +57,8 @@ def join_lines(
             result = result[:-1] + line
         elif re.search(r"\S—$", result):
             result += line
+        elif result.endswith("/") and result[-2:-1].isalpha() and line[0].isalpha():
+            result += line
         elif result.endswith("-"):
             left = re.search(r"([^\W\d_]+)-$", result)
             right = re.match(r"([^\W\d_]+)", line)

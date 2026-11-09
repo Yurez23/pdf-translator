@@ -1,4 +1,4 @@
-"""PDF-26 punctuation joins preserve literal source spaces and KEEP choices."""
+"""Punctuation joins preserve literal source spaces and KEEP choices."""
 
 import unittest
 
@@ -6,6 +6,17 @@ from pdf_translator.text import join_lines, normalize
 
 
 class PunctuationJoinTests(unittest.TestCase):
+    def test_attached_slash_wrap_keeps_alternatives_compact(self):
+        for fragments, expected in [
+            (["Use the Draw/", "Sheathe action."], "Use the Draw/Sheathe action."),
+            (["Either running/walking/", "crawling works."], "Either running/walking/crawling works."),
+            (["Speed /", "Rank"], "Speed / Rank"),
+            (["Speed / Rank"], "Speed / Rank"),
+            (["value/", "2"], "value/ 2"),
+        ]:
+            with self.subTest(fragments=fragments):
+                self.assertEqual(join_lines(fragments, set(), 1, self.fail), expected)
+
     def test_closed_dash_wrap_has_no_added_space(self):
         self.assertEqual(join_lines(['a closed—','continuation'],set(),1,self.fail),'a closed—continuation')
         self.assertEqual(join_lines(['a spaced —','continuation'],set(),1,self.fail),'a spaced — continuation')
