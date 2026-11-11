@@ -103,6 +103,58 @@ def bold_continuation(previous: Line, following: Line) -> bool:
     return bold(a) and bold(b) and strip(a.font) == strip(b.font)
 
 
+def definition_entries(lines: list[Line], body: float) -> set[int]:
+    """Recognize repeated styled colon labels, including wrapped index labels.
+
+    Page references can be bold too; they are values, never the start of a
+    label. Require repeated hanging definitions before overriding prose rules.
+    """
+    starts: set[int] = set()
+    hanging = 0
+    index = 0
+    while index < len(lines):
+        first = lines[index]
+        if not first.text[:1].isalpha() or first.size > body * 1.15:
+            index += 1
+            continue
+        end = index
+        found = False
+        for end in range(index, min(index + 3, len(lines))):
+            row = lines[end]
+            if end > index:
+                previous = lines[end - 1]
+                if (not row.text[:1].isalpha()
+                        or not 0 <= row.bbox[1] - previous.bbox[3] <= body * .8
+                        or not -body * .35 <= row.bbox[0] - first.bbox[0] <= body * 3
+                        or row.bbox[0] <= first.bbox[0] + body * .5
+                        and not (italic(first) and italic(Line([row.words[0]], row.words[0].bbox, row.words[0].size)))):
+                    break
+            for word in row.words:
+                symbol = word.glyphs and all(g.symbol for g in word.glyphs)
+                if not (bold(word) or italic(Line([word], word.bbox, word.size)) or symbol):
+                    break
+                if word.text.endswith(':'):
+                    found = True
+                    break
+            else:
+                continue
+            break
+        if found:
+            starts.add(id(first))
+            if end + 1 < len(lines):
+                following = lines[end + 1]
+                hanging += (body * .5 < following.bbox[0] - first.bbox[0] < body * 3
+                            and 0 <= following.bbox[1] - lines[end].bbox[3] <= body * .8)
+            index = end + 1
+        else:
+            index += 1
+    positions = [i for i, row in enumerate(lines) if id(row) in starts]
+    ends = [*(position - 1 for position in positions[1:]), len(lines) - 1]
+    references = sum(bool(re.search(r"\d$", lines[end].text)) for end in ends)
+    return starts if (len(starts) >= 3 and hanging >= 3
+                      and references >= max(3, len(starts) * .4)) else set()
+
+
 def hanging_entry(lines: list[Line], index: int, body: float) -> bool:
     """Require hanging continuation evidence, including completed first lines.
 

@@ -13,7 +13,7 @@ from .continuations import merge_continuations
 from .headings import graphic_label
 from .paragraphs import (lead_in as _lead_in, bold, hanging_entry, bold_continuation,
                          italic, italic_field_start, returns_left, style_boundary, hanging_run,
-                         centered_quotation_lines, quotation_opener)
+                         centered_quotation_lines, quotation_opener, definition_entries)
 from .paragraph_conventions import line_font
 from .page_data import PageData
 from .forms import encloses, overlaps
@@ -27,10 +27,10 @@ from collections.abc import Callable, Sequence
 type Warn = Callable[[ConversionWarning], None]
 
 
-def _gutter(words: list[Word], page: PageData, *, upper: float = 1.15) -> tuple[float, float, float] | None:
+def _gutter_candidates(words: list[Word], page: PageData, upper: float) -> list[tuple[float, float, float, float]]:
     body = [w for w in words if page.body_size * 0.8 <= w.size <= page.body_size * upper and w.text.strip()]
     if len(body) < 24:
-        return None
+        return []
     low, high = int(page.width * 0.32), int(page.width * 0.68)
     coverage = [(x, sum(w.bbox[0] < x < w.bbox[2] for w in body)) for x in range(low, high + 1)]
     runs: list[list[int]] = []
@@ -52,6 +52,11 @@ def _gutter(words: list[Word], page: PageData, *, upper: float = 1.15) -> tuple[
         overlap = min(max(w.bbox[3] for w in left), max(w.bbox[3] for w in right)) - max(min(w.bbox[1] for w in left), min(w.bbox[1] for w in right))
         if overlap >= page.body_size * 4:
             valid.append((len(run) - abs(split - page.width / 2) * 0.05, split, run[0], run[-1]))
+    return valid
+
+
+def _gutter(words: list[Word], page: PageData, *, upper: float = 1.15) -> tuple[float, float, float] | None:
+    valid = _gutter_candidates(words, page, upper)
     if not valid:
         # A secondary column can be a larger-type index, not just prose.
         # Include its labels too: counting only the smaller attributes could
@@ -59,6 +64,25 @@ def _gutter(words: list[Word], page: PageData, *, upper: float = 1.15) -> tuple[
         return _gutter(words, page, upper=2.2) if upper == 1.15 else None
     _, split, x0, x1 = max(valid)
     return split, x0, x1
+
+
+def _column_gutters(words: list[Word], page: PageData) -> list[tuple[float, float, float]]:
+    """Keep multiple gutters only for sustained, similarly wide text columns."""
+    candidates = sorted(_gutter_candidates(words, page, 1.15), key=lambda item: item[1])
+    if len(candidates) >= 2:
+        body = [w for w in words if page.body_size * .8 <= w.size <= page.body_size * 1.15]
+        cuts = [-math.inf, *(item[1] for item in candidates), math.inf]
+        columns = [[w for w in body if left <= (w.bbox[0] + w.bbox[2]) / 2 < right]
+                   for left, right in zip(cuts, cuts[1:])]
+        if all(len(column) >= 8 for column in columns):
+            boxes = [union_bbox([w.bbox for w in column]) for column in columns]
+            widths = [box[2] - box[0] for box in boxes]
+            overlap = min(box[3] for box in boxes) - max(box[1] for box in boxes)
+            if (min(widths) >= page.body_size * 6 and max(widths) <= min(widths) * 1.5
+                    and overlap >= page.body_size * 4):
+                return [(split, x0, x1) for _, split, x0, x1 in candidates]
+    gutter = _gutter(words, page)
+    return [gutter] if gutter else []
 
 
 def _blocks_for_lines(
@@ -70,6 +94,7 @@ def _blocks_for_lines(
         return []
     lines = sorted(lines, key=lambda line: (line.bbox[1], line.bbox[0]))
     body = page.body_size
+    definitions = definition_entries(lines, body)
     quotation_lines = centered_quotation_lines(lines, body)
     result: list[Block] = []
     pending: list[Line] = []
@@ -136,6 +161,8 @@ def _blocks_for_lines(
                                          and all(bold(word) for word in letters)))
         if all_bold and line.source_length < 80 and not _terminal(text) and not is_list(text):
             is_heading = True
+        if definitions and line.size <= body * 1.15:
+            is_heading = False
         if id(line) in field_lines:
             is_heading = False
         if (all_bold and line.size <= body * 1.15 and index+1 < len(lines)
@@ -176,7 +203,8 @@ def _blocks_for_lines(
             footnote = (marker_note or bool(re.match(r"^(?:\d+[.)]?|[*†‡])\s*\w", text))
                         or bool(rules_above) and not continuing)
         lead_in = _lead_in(line) and not (pending and bold_continuation(pending[-1], line))
-        list_item = is_list(text) or lead_in and hanging_entry(lines, index, body) and id(line) not in field_lines
+        list_item = (id(line) in definitions or is_list(text)
+                     or lead_in and hanging_entry(lines, index, body) and id(line) not in field_lines)
         new_kind = "footnote" if footnote else "list_item" if list_item else "paragraph"
         if pending:
             prev = pending[-1]
@@ -241,7 +269,7 @@ def _blocks_for_lines(
                               + body * .25 < right)
             disconnected = (abs(line.bbox[3] - prev.bbox[3]) < body * 0.3
                             and (line.bbox[0] - prev.bbox[2] > body * 3 or prev.bbox[0] - line.bbox[2] > body * 3))
-            boundary = (gap > body * 0.65 or is_list(text) or lead_in or footnote and kind != "footnote"
+            boundary = (id(line) in definitions or gap > body * 0.65 or is_list(text) or lead_in or footnote and kind != "footnote"
                         or id(line) in field_lines
                         or id(prev) in field_lines and prev.text_without_symbols.endswith(":")
                         or kind == "list_item" and first_line_indent
@@ -254,6 +282,12 @@ def _blocks_for_lines(
                         or bold_entry or italic_field_end or italic_subtitle or list_intro
                         or disconnected or style_boundary(prev, line, body)
                         or (id(prev) in quotation_lines) != (id(line) in quotation_lines))
+            if (definitions and id(line) not in definitions
+                    and max(line.size, prev.size) <= body * 1.15
+                    and -body * .3 <= gap <= body * .8 and not is_list(text)):
+                # Bold page numbers and italic cross-references are part of
+                # the current definition, even after a complete sentence.
+                boundary = False
             if boundary:
                 flush()
         if not pending:
@@ -643,25 +677,28 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
     flow = [w for w in upright if id(w) not in recovered_words]
     flow_words = [w for w in flow if not any(contains(box,w) for box in table_boxes+frames+(
         [union_bbox(page.diagram_boxes)] if page.diagram_boxes else []))]
-    gutter = _gutter(flow_words,page) or _gutter(
-        [w for w in flow if not any(contains(box,w) for box in table_boxes)],page) or _gutter(flow,page)
+    gutters = _column_gutters(flow_words,page) or _column_gutters(
+        [w for w in flow if not any(contains(box,w) for box in table_boxes)],page) or _column_gutters(flow,page)
     bounds = union_bbox([w.bbox for w in words]) if words else (0, 0, page.width, page.height)
-    if gutter is None:
+    if not gutters:
         ordered = _ordered_region(group_lines(words, page.body_size, split_gaps=True), specials, page, bounds, lexicon, warn, resolver)
     else:
-        split, g0, g1 = gutter
         spans: list[Line] = []
         ordinary: list[Word] = []
         for line in group_lines(words, page.body_size):
-            cross = any(w.bbox[0] < split < w.bbox[2] for w in line.words)
-            left = [w for w in line.words if w.bbox[2] <= split]
-            right = [w for w in line.words if w.bbox[0] >= split]
-            narrow_gap = left and right and min(w.bbox[0] for w in right) - max(w.bbox[2] for w in left) < max(page.body_size * 1.15, (g1-g0) * 0.65)
+            cross = any(w.bbox[0] < split < w.bbox[2] for w in line.words for split, _, _ in gutters)
+            narrow_gap = False
+            for split, g0, g1 in gutters:
+                left = [w for w in line.words if w.bbox[2] <= split]
+                right = [w for w in line.words if w.bbox[0] >= split]
+                if left and right and min(w.bbox[0] for w in right) - max(w.bbox[2] for w in left) < max(page.body_size * 1.15, (g1-g0) * 0.65):
+                    narrow_gap = True
             if cross or narrow_gap:
                 spans.append(line)
             else:
                 ordinary.extend(line.words)
-        wide = [b for b in specials if b.sources[0].bbox[0] < split - page.body_size and b.sources[0].bbox[2] > split + page.body_size]
+        wide = [b for b in specials if any(b.sources[0].bbox[0] < split - page.body_size
+                and b.sources[0].bbox[2] > split + page.body_size for split, _, _ in gutters)]
         narrow = [b for b in specials if b not in wide]
         # A short title above a spanning table belongs to the spanning band,
         # even when its text itself only occupies the left column.
@@ -691,10 +728,13 @@ def _layout_page(page: PageData, lexicon: set[str], warn: Warn, resolver: Hyphen
             cutoff = boundary.sources[0].bbox[1] if boundary else math.inf
             band_words = [w for w in remaining_words if w.bbox[1] < cutoff]
             band_specials = [b for b in remaining_specials if b.sources[0].bbox[1] < cutoff]
-            for is_left in (True, False):
-                column = [w for w in band_words if ((w.bbox[0] + w.bbox[2]) / 2 < split) == is_left]
-                column_specials = [b for b in band_specials if ((b.sources[0].bbox[0] + b.sources[0].bbox[2]) / 2 < split) == is_left]
-                col_bounds = (bounds[0], 0, g0, page.height) if is_left else (g1, 0, bounds[2], page.height)
+            cuts = [-math.inf, *(split for split, _, _ in gutters), math.inf]
+            left_edges = [bounds[0], *(g1 for _, _, g1 in gutters)]
+            right_edges = [*(g0 for _, g0, _ in gutters), bounds[2]]
+            for low, high, x0, x1 in zip(cuts, cuts[1:], left_edges, right_edges):
+                column = [w for w in band_words if low <= (w.bbox[0] + w.bbox[2]) / 2 < high]
+                column_specials = [b for b in band_specials if low <= (b.sources[0].bbox[0] + b.sources[0].bbox[2]) / 2 < high]
+                col_bounds = (x0, 0, x1, page.height)
                 ordered.extend(_ordered_region(group_lines(column, page.body_size), column_specials, page, col_bounds, lexicon, warn, resolver))
             word_ids = {id(w) for w in band_words}
             special_ids = {id(b) for b in band_specials}

@@ -73,6 +73,7 @@ python -m unittest tests.test_solid_contracts -v
 python -m unittest tests.test_async_translation tests.test_async_gemini -v
 python -m unittest tests.test_response_recovery -v
 python -m unittest tests.test_layout_recovery -v
+python -m unittest tests.test_glossary_layout -v
 python -m unittest tests.test_book_recovery tests.test_diagrams tests.test_table_recovery -v
 python -m unittest tests.test_symbols -v
 python -m unittest tests.test_table_structure tests.test_table_recovery -v
@@ -103,6 +104,7 @@ PDF создаются через ReportLab в `TemporaryDirectory`; растр�
 | Пунктуация PDF-26 и PDF-33 | `test_punctuation_joins` | Переносы после примыкающего тире и косой черты между буквами, отбивные разделители, точка после скобки/знака, пробелы у многоточия и сохранение решений KEEP. |
 | Строки и метки PDF-27 | `test_verse_layout` | Группы центрированного эпиграфа, отрицательные обычные цитаты, ActualText меток и hardbreak в разборе Markdown. |
 | Межглавная вёрстка | `test_book_recovery` | Продолжения через выбранные пустые страницы, короткие переносы колонок, крупный левый указатель рядом с прозой, висячие записи без искусственных маркеров, буквицы, курсивные поля, литературные цитаты, защита таблиц и overprint-пробелы. |
+| Глоссарий PDF-35 | `test_glossary_layout` | Регулярные три колонки, общий заголовок, отдельные статьи с жирными числовыми ссылками, переносы меток и курсивные подстатьи; отрицательные проза/диалог и обычные две колонки. Локальные примеры физических страниц 1, 2, 6, 7 пропускаются только без `example/18. Glossary and Index.pdf`. |
 | Карточки схем | `test_diagrams` | Раздельная сетка от четырёх панелей, настоящие промежутки, отрицательные обычные таблицы/рамки, отдельный владелец каждого текста; локальные сравнения исходных карточек, чисел и порядка. |
 | Восстановление таблиц | `test_table_recovery` | Окрашенные ячейки и статблоки, дополнительные строки только при достаточных признаках, отсутствие потерь/мутаций, отрицательные случаи и локальные книжные таблицы. |
 | Структура таблиц PDF-02 | `test_table_structure` | Полное покрытие и владельцы слотов/слов, пустая ячейка отдельно от span/дыры, вертикальные метки и общий выбор, составные шапки, группы, ложная сетка, нет дублирования исходного текста, соседние независимые области, явный fallback, символы/знаки/диапазоны/сноски и MD/TXT. |
